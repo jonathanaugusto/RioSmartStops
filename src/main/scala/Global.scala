@@ -17,14 +17,15 @@ import scala.io.Source
 object Global {
 
   val GPSHttpFile = "http://dadosabertos.rio.rj.gov.br/apiTransporte/apresentacao/rest/index.cfm/obterTodasPosicoes"
-  val GPSLocalDir = "hdfs://localhost:9000/user/jonny/data/"
+  val GPSLocalDir = "hdfs://JonnyLaptop:9000/user/jonny/data/"
   val GPSLocalFile = GPSLocalDir + "GPSdata.json"
-
+  val sparkConf = new SparkConf().setAppName("RioSmartStops-GetGPSData").setMaster("spark://JonnyLaptop:7077")
+  val sparkContext = new SparkContext(sparkConf)
+  val debug = true
+  val getNewData = false
 
   def getGPSData(): Unit = {
-    val sparkConf = new SparkConf().setAppName("RioSmartStops").setMaster("spark://JonnyLaptop:7077")
-    val sparkContext = new SparkContext(sparkConf)
-
+    if (debug) println("BEGIN getGPSData")
     // Get http file and save to hdfs
 
     val conf = new Configuration()
@@ -32,38 +33,49 @@ object Global {
 
     val fs = FileSystem.get(conf)
     val path = new Path(GPSLocalFile)
-    val source = Source.fromURL(GPSHttpFile)
 
     // File not exists => Create new file
     // File exists
     //  |- Hash is different => Create new file
-    //   - Hash is the same => Nothing to do
+    //  |- Hash is the same => Nothing to do
 
-    if (!(fs.exists(path) == true && fs.hashCode() == source.hashCode())) {
+  if (getNewData) {
+    val source = Source.fromURL(GPSHttpFile)
+    if (!(fs.exists(path) && fs.hashCode() == source.hashCode())) {
       println("Retrieving new data...")
       val os = fs.create(path)
       source.foreach(c => os.write(c))
       os.flush()
       os.close()
     }
-    sparkContext.stop()
+  }
+    //sparkContext.stop()
+    if (debug) println("END getGPSData")
+
   }
 
   def mapGPSData (): Unit ={
     // Format hdfs file
-    val sparkConf = new SparkConf().setAppName("RioSmartStops").setMaster("yarn-client")
-    val sparkContext = new SparkContext(sparkConf)
+    if (debug) println("BEGIN mapGPSData")
 
-    val sqlContext = new org.apache.spark.sql.SQLContext(sparkContext)
+   val sqlContext = new org.apache.spark.sql.SQLContext(sparkContext)
     val jsonFile = sqlContext.read.json(GPSLocalFile)
-    val list = jsonFile.select("COLUMNS").collect()
-    list.foreach{println}
+    //val list = jsonFile.select("COLUMNS").collect()
+    //list.foreach{println}
+    val list = jsonFile.select("DATA").collectAsList().get(0).getList(0) // .get(x)
+    val obj = list.get(3)
 
-    sparkContext.stop()
+    println(obj)//describe("DATETIME", "BUSID", "BUSLINE", "LAT", "LONG", "VELOCITy")
+    //val list = jsonFile.select("DATA").describe("DATETIME", "BUSID", "BUSLINE", "LAT", "LONG", "VELOCITy")
+
+
+    //sparkContext.stop()
+
+    if (debug) println("END mapGPSData")
   }
 
   def stop(): Unit ={
-    //sparkContext.stop()
+    sparkContext.stop()
   }
 
 }
