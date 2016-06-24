@@ -466,8 +466,11 @@ object Functions {
     val trips_df = GetTripsDF().select("id", "shape_id").withColumnRenamed("id", "trip_id")
     broadcast(trips_df)
 
-      val stops_df = GetStopsDF()
+    val stops_df = GetStopsDF()
     broadcast(stops_df)
+
+    val shapes_df = GetShapesDF().drop("sequence")
+    broadcast(shapes_df)
 
       if (debug) println("Reading stop_times.txt")
 
@@ -509,8 +512,7 @@ object Functions {
         if (debug) println("| shape_id = " + shape_id)
 
         // Create DF of shapes collected (filtered too)
-        val shapes_df = GetShapesDF(shape_id).drop("id").drop("sequence")
-      //broadcast(shapes_df)
+        val shapes_f_df = shapes_df.filter(col("id") === shape_id)
 
       if (debug) print("| Steps OK: ")
         // Filtering and collecting relationship trip<=>stop by trip_id
@@ -520,15 +522,15 @@ object Functions {
       if (debug) print("1 ")
 
         // Join with all shape points
-        val df2 = df1.join(shapes_df)
-      df2.write.format("parquet").mode(SaveMode.Overwrite).save(HDFS_Dir + Parquet_Data + "temp.parquet")
-      shapes_df.unpersist()
+        val df2 = df1.join(shapes_f_df)
+      df2.write.mode(SaveMode.Overwrite).parquet(HDFS_Dir + Parquet_Data + "temp/" + trip_id + ".parquet")
+      shapes_f_df.unpersist()
       df1.unpersist()
       df2.unpersist()
       if (debug) print("2 ")
 
         // Calculate cross-track distance
-        val df3a = SparkSqlContext.read.parquet(HDFS_Dir + Parquet_Data + "temp.parquet")
+        val df3a = SparkSqlContext.read.parquet(HDFS_Dir + Parquet_Data + "temp/" + trip_id + ".parquet")
       //          .withColumn("onSegment", functions.callUDF("onSegment", col("lat"), col("lon"), col("lat1"), col("lon1"), col("lat2"), col("lon2")))
       df3a.registerTempTable("df3a")
       val df3 = SparkSqlContext.sql("select * from df3a where onSegment(lat,lon,lat1,lon1,lat2,lon2) = true")
@@ -561,6 +563,7 @@ object Functions {
       //df6.write.mode(SaveMode.Append).jdbc(DBConnectionString,"tripstop_",DBConnectionProperties)
       if (debug) println("DB.")
 
+      df3a.unpersist()
       df3.unpersist()
       df4.unpersist()
       df5.unpersist()
@@ -568,8 +571,10 @@ object Functions {
 
       //        if (debug) println("-----")
     }
+
       }
 
+    remove(HDFS_Dir + Parquet_Data + "temp")
 
       // TODO: 1) Manter trips, stops e shapes na memória, não tem jeito. PElo menos pra calcular distância de tripstop
       // TODO: 2) Para todo trip: select mínimo cross-track e calcular ponto1 da reta + along-track = tripstop dist
