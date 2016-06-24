@@ -13,10 +13,11 @@ import java.sql.Timestamp
 
 import RioSmartStops.Global._
 import org.apache.spark.rdd._
-import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.{DataFrame, SaveMode, functions}
 import org.apache.spark.sql.functions._
 
 import scala.collection.mutable._
+
 
 // Functions to operate and manipulate GPS data.
 // Global variables and minor IO/formatting functions
@@ -24,6 +25,13 @@ import scala.collection.mutable._
 
 object Functions {
 
+  //  def Convert() {
+  //    GetRoutesDF().write.format("parquet").mode(SaveMode.Overwrite).save(HDFS_Dir + "gtfs/routes.parquet")
+  //    GetFaresDF().write.format("parquet").mode(SaveMode.Overwrite).save(HDFS_Dir + "gtfs/fares.parquet")
+  //    GetTripsDF().write.format("parquet").mode(SaveMode.Overwrite).save(HDFS_Dir + "gtfs/trips.parquet")
+  //    GetStopsDF().write.format("parquet").mode(SaveMode.Overwrite).save(HDFS_Dir + "gtfs/stops.parquet")
+  //    GetShapesDF().write.format("parquet").mode(SaveMode.Overwrite).save(HDFS_Dir + "gtfs/shapes.parquet")
+  //  }
 
   def PushGPSData() {
 
@@ -81,23 +89,20 @@ object Functions {
   }
 
   def UpdateGTFSData() {
-
-    // GetFaresAndRoutes()
-    // GetShapes()
-    UpdateStopsAndTrips()
+    //Convert()
+    UpdateTripStops()
   }
 
+  //  def Convert() {
+  //    val a = SparkSqlContext.read.parquet(Parquet_TripStops_File)
+  //    a.write.mode(SaveMode.Append).jdbc(DBConnectionString,"tripstop_",DBConnectionProperties)
+  //  }
 
   def GetRoutesDF(route_id: String = null, recursive: Boolean = false): DataFrame = {
 
     if (debug && !recursive) print("Reading routes table... ")
 
-    val data =
-      if (route_id == null)
-        SparkSqlContext.read.jdbc(DBConnectionString, "route", DBConnectionProperties)
-      else
-        SparkSqlContext.read.jdbc(DBConnectionString, "route", DBConnectionProperties)
-          .filter(col("id") === route_id)
+    var data = SparkSqlContext.read.parquet(Parquet_Routes_File)
 
     if (data.count() == 0) {
       println("No data")
@@ -106,28 +111,26 @@ object Functions {
 
     }
 
-    val data_arr = data.collect().map(f =>
-      Route(id = f(0).toString, code = f(1).toString, name = f(2).toString,
-        info = f(3).toString, color = f(4).toString, fare_id = f(5).toString))
+    if (route_id != null)
+      data = data.filter(col("id") === route_id)
 
-    val data_rdd = SparkGlobalContext.broadcast(data_arr)
-    val data_df = SparkSqlContext.createDataFrame(data_rdd.value)
+    //    val data_arr = data.collect().map(f =>
+    //      Route(id = f(0).toString, code = f(1).toString, name = f(2).toString,
+    //        info = f(3).toString, color = f(4).toString, fare_id = f(5).toString))
+    //
+    //    val data_rdd = SparkGlobalContext.broadcast(data_arr)
+    //    val data_df = SparkSqlContext.createDataFrame(data_rdd.value)
 
-    if (debug && !recursive) println("Loaded. Count: " + data_df.count())
+    if (debug && !recursive) println("Loaded. Count: " + data.count())
 
-    data_df
+    data
   }
 
   def GetFaresDF(fare_id: String = null, recursive: Boolean = false): DataFrame = {
 
     if (debug && !recursive) print("Reading fares table... ")
 
-    val data =
-      if (fare_id == null)
-        SparkSqlContext.read.jdbc(DBConnectionString, "fare", DBConnectionProperties)
-      else
-        SparkSqlContext.read.jdbc(DBConnectionString, "fare", DBConnectionProperties)
-          .filter(col("id") === fare_id)
+    var data = SparkSqlContext.read.parquet(Parquet_Fares_File)
 
     if (data.count() == 0) {
       println("No data")
@@ -136,28 +139,26 @@ object Functions {
 
     }
 
-    val data_arr = data.collect().map(f =>
-      Fare(id = f(0).toString, price = f(1).toString.toFloat,
-        transfers = f(2).toString.toInt, transfer_duration = f(3).toString.toInt))
+    if (fare_id == null)
+      data = data.filter(col("id") === fare_id)
 
-    val data_rdd = SparkGlobalContext.broadcast(data_arr)
-    val data_df = SparkSqlContext.createDataFrame(data_rdd.value)
+    //    val data_arr = data.collect().map(f =>
+    //      Fare(id = f(0).toString, price = f(1).toString.toFloat,
+    //        transfers = f(2).toString.toInt, transfer_duration = f(3).toString.toInt))
+    //
+    //    val data_rdd = SparkGlobalContext.broadcast(data_arr)
+    //    val data_df = SparkSqlContext.createDataFrame(data_rdd.value)
 
-    if (debug && !recursive) println("Loaded. Count: " + data_df.count())
+    if (debug && !recursive) println("Loaded. Count: " + data.count())
 
-    data_df
+    data
   }
 
   def GetShapesDF(shape_id: String = null, recursive: Boolean = false): DataFrame = {
 
     if (debug && !recursive) print("Reading shapes table... ")
 
-    val data =
-      if (shape_id == null)
-        SparkSqlContext.read.jdbc(DBConnectionString, "shape", DBConnectionProperties)
-      else
-        SparkSqlContext.read.jdbc(DBConnectionString, "shape", DBConnectionProperties)
-          .filter(col("id") === shape_id)
+    var data = SparkSqlContext.read.parquet(Parquet_Shapes_File)
 
     if (data.count() == 0) {
       println("No data")
@@ -166,36 +167,21 @@ object Functions {
 
     }
 
-    if (shape_id != null) {
-      val data_arr = data.collect().map(f =>
-        Shape(id = f(0).toString, sequence = f(1).toString.toLong, lat1 = f(2).toString.toDouble,
-          lon1 = f(3).toString.toDouble, lat2 = f(4).toString.toDouble, lon2 = f(5).toString.toDouble,
-          dist = f(6).toString.toDouble))
+    if (shape_id != null)
+      data = data.filter(col("id") === shape_id)
 
-      val data_rdd = SparkGlobalContext.broadcast(data_arr)
-      val data_df = SparkSqlContext.createDataFrame(data_rdd.value)
-
-      if (debug && !recursive) println("Loaded. Count: " + data_df.count())
-
-      return data_df
-    }
-
+    //val data_brd = SparkGlobalContext.parallelize(data)
     if (debug && !recursive) println("Loaded. Count: " + data.count() + "\r\n" +
       "ATTENTION: Need to call some ACTION to avoid lazy-transformation problems")
 
-    data
+    broadcast(data)
   }
 
   def GetStopsDF(stop_id: String = null, recursive: Boolean = false): DataFrame = {
 
     if (debug && !recursive) print("Reading stops table... ")
 
-    val data =
-      if (stop_id == null)
-        SparkSqlContext.read.jdbc(DBConnectionString, "stop", DBConnectionProperties)
-      else
-        SparkSqlContext.read.jdbc(DBConnectionString, "stop", DBConnectionProperties)
-          .filter(col("id") === stop_id)
+    var data = SparkSqlContext.read.parquet(Parquet_Stops_File)
 
     if (data.count() == 0) {
       println("No data")
@@ -203,23 +189,27 @@ object Functions {
       return GetStopsDF(stop_id, true)
     }
 
-    val data_arr = data.collect().map(f =>
-      Stop(id = f(0).toString, code = f(1).toString, name = f(2).toString,
-        desc = f(3).toString, lat = f(4).toString.toDouble, lon = f(5).toString.toDouble))
+    if (stop_id != null)
+      data = data.filter(col("id") === stop_id)
 
-    val data_rdd = SparkGlobalContext.broadcast(data_arr)
-    val data_df = SparkSqlContext.createDataFrame(data_rdd.value)
+    //    val data_brd = SparkGlobalContext.broadcast(data)
 
-    if (debug && !recursive) println("Loaded. Count: " + data_df.count())
+    if (debug && !recursive) println("Loaded. Count: " + data.count())
 
-    data_df
+    data
   }
 
   def GetTripsDF(trip_id: String = null, route_id: String = null, recursive: Boolean = false): DataFrame = {
 
     if (debug && !recursive) print("Reading trips table... ")
 
-    var data: DataFrame = SparkSqlContext.read.jdbc(DBConnectionString, "trip", DBConnectionProperties)
+    var data: DataFrame = SparkSqlContext.read.parquet(Parquet_Trips_File)
+
+    if (data.count() == 0) {
+      println("No data")
+      UpdateTrips()
+      return GetTripsDF(trip_id, route_id, true)
+    }
 
     if (trip_id != null && route_id != null)
       data = data.filter(col("id") === trip_id && col("route_id") === route_id)
@@ -228,44 +218,14 @@ object Functions {
     else if (trip_id != null && route_id == null)
       data = data.filter(col("id") === trip_id)
 
-    if (data.count() == 0) {
-      println("No data")
-      UpdateTrips()
-      return GetTripsDF(trip_id, route_id, true)
-    }
+    //    val data_brd = SparkGlobalContext.broadcast(data)
 
-    val data_arr = data.collect().map(f =>
-      Trip(id = f(0).toString.toLong, route_id = f(1).toString, direction = f(2).toString.toInt,
-        headsign = f(3).toString, shape_id = f(4).toString))
+    if (debug && !recursive) println("Loaded. Count: " + data.count())
 
-    val data_rdd = SparkGlobalContext.broadcast(data_arr)
-    val data_df = SparkSqlContext.createDataFrame(data_rdd.value)
-
-    if (debug && !recursive) println("Loaded. Count: " + data_df.count())
-
-    data_df
+    data
   }
 
   def UpdateFaresAndRoutes() {
-
-    if (debug) println("Reading previously saved information (fares/routes)")
-
-    // Reading fare and route tables
-
-    val fares_data = SparkSqlContext.read.
-      jdbc(DBConnectionString, "fare", DBConnectionProperties)
-    val routes_data = SparkSqlContext.read.
-      jdbc(DBConnectionString, "route", DBConnectionProperties)
-
-    if (fares_data.count() > 0 && routes_data.count() > 0) {
-      if (debug) println("Loaded")
-      //      FaresDF = fares_data
-      //      RoutesDF = routes_data
-      //      FaresDF.persist(StorageLevel.MEMORY_AND_DISK_SER)
-      //      RoutesDF.persist(StorageLevel.MEMORY_AND_DISK_SER)
-      return
-    }
-    else if (debug) println("No data loaded. Generating new tables")
 
     // --------------------------------------------- fare_attributes.txt
 
@@ -325,8 +285,8 @@ object Functions {
     //    RoutesDF = routes_df
     //    RoutesDF.persist(StorageLevel.MEMORY_AND_DISK_SER)
 
-    fare_attribs_df.write.mode("append").jdbc(DBConnectionString, "fare", DBConnectionProperties)
-    routes_df.write.mode("append").jdbc(DBConnectionString, "route", DBConnectionProperties)
+    fare_attribs_df.write.format("parquet").mode(SaveMode.Overwrite).save(Parquet_Fares_File)
+    routes_df.write.format("parquet").mode(SaveMode.Overwrite).save(Parquet_Routes_File)
 
     fare_attribs_df.unpersist()
     fare_rules_df.unpersist()
@@ -335,6 +295,12 @@ object Functions {
   }
 
   def UpdateShapes() {
+
+    // Erasing existent file
+
+    val ss = new ArrayBuffer[Shape]() += new Shape("", 0, .0, .0, .0, .0, .0, .0)
+    val r = SparkGlobalContext.parallelize(ss)
+    SparkSqlContext.createDataFrame(r).write.format("parquet").mode(SaveMode.Overwrite).save(Parquet_Shapes_File)
 
     if (debug) println("Reading shapes.txt -- sequentially, in order to calculate travelled distances")
 
@@ -359,13 +325,16 @@ object Functions {
     var shapes_calculated = new ArrayBuffer[Shape]()
 
     val shapes_ids = shapes_grouped_rdd.keys.distinct().collect()
+    var shapes_count = 0
 
+    print("ids: ")
     for (id <- shapes_ids) {
-      var distance: Double = .0
+      shapes_count += 1
+      var total_dist: Double = .0
+      var sequence_count: Long = 0
       // Partition group with same shape_id, can be seeked by iterator
       val shape_RDD: RDD[(String, Int, Double, Double)] = shapes_grouped_rdd.filter(f => f._1 == id).map(f => f._2)
       val shape_tuples: List[Array[(String, Int, Double, Double)]] = shape_RDD.collect().sliding(2).toList
-
       shape_tuples.foreach {
         // Seeking through size-2 sequencies, stepping 1 by 1 element
 
@@ -373,27 +342,31 @@ object Functions {
           val shape1 = l(0)
           val shape2 = l(1)
           val shape_id = shape1._1
-          val sequence = shape1._2
+          //val sequence = shape1._2
           val lat1 = shape1._3
           val lon1 = shape1._4
           val lat2 = shape2._3
           val lon2 = shape2._4
 
-          distance += distanceFunction((lat1, lon1), (lat2, lon2))
-          shapes_calculated += Shape(shape_id, sequence, lat1, lon1, lat2, lon2, distance)
-
+          if (lat1 != lat2 && lon1 != lon2) {
+            val dist = distance((lat1, lon1), (lat2, lon2))
+            total_dist += dist
+            shapes_calculated += Shape(shape_id, sequence_count, lat1, lon1, lat2, lon2, dist, total_dist)
+            sequence_count += 1
+          }
       }
 
       val shapes_rdd = SparkGlobalContext.parallelize(shapes_calculated)
       val shapes_df = SparkSqlContext.createDataFrame(shapes_rdd)
-      shapes_df.write.mode("append").jdbc(DBConnectionString, "shape", DBConnectionProperties)
+      shapes_df.write.format("parquet").mode(SaveMode.Append).save(Parquet_Shapes_File)
       shapes_calculated = new ArrayBuffer[Shape]()
       //        ShapesDF = shapes_df
       //        ShapesDF.persist(StorageLevel.MEMORY_AND_DISK_SER)
       //      shapes_df.unpersist()
       //      shapes_rdd.unpersist()
-    }
 
+      if (debug) print(id + " | ")
+    }
   }
 
   def UpdateStops() = {
@@ -431,7 +404,7 @@ object Functions {
     stops_df.printSchema()
     //    stops_df.show(stops_df.count().toInt)
 
-    stops_df.write.mode("append").jdbc(DBConnectionString, "stop", DBConnectionProperties)
+    stops_df.write.format("parquet").mode(SaveMode.Overwrite).save(Parquet_Stops_File)
 
   }
 
@@ -476,30 +449,25 @@ object Functions {
     //    trips_df.printSchema()
     //    trips_df.show()
 
-    trips_df.write.mode("append").jdbc(DBConnectionString, "trip", DBConnectionProperties)
+    trips_df.write.format("parquet").mode(SaveMode.Overwrite).save(Parquet_Trips_File)
 
   }
 
-  def UpdateStopsAndTrips() {
+  def UpdateTripStops() {
 
-    if (debug) println("Reading previously saved information (stops/trips)")
+    // Erasing existent file
+
+    val ss = new ArrayBuffer[TripStop]() += new TripStop(0, null, 0, .0)
+    val r = SparkGlobalContext.parallelize(ss)
+    SparkSqlContext.createDataFrame(r).write.format("parquet").mode(SaveMode.Overwrite).save(Parquet_TripStops_File)
 
     // --------------------------------------------- stop_times.txt
 
-    val tripstops_data = SparkSqlContext.read.
-      jdbc(DBConnectionString, "tripstop", DBConnectionProperties)
-
-    if (tripstops_data.count() > 0) {
-      println("Relationship data OK. Count: " + tripstops_data.count())
-      //      TripStopsDF = tripstops_data
-      //      TripStopsDF.persist(StorageLevel.MEMORY_AND_DISK_SER)
-    }
-
-    else {
-
-      val trips_df = GetTripsDF()
+    val trips_df = GetTripsDF().select("id", "shape_id").withColumnRenamed("id", "trip_id")
+    broadcast(trips_df)
 
       val stops_df = GetStopsDF()
+    broadcast(stops_df)
 
       if (debug) println("Reading stop_times.txt")
 
@@ -507,134 +475,99 @@ object Functions {
       val stop_times_header = stop_times_csv.first
 
       val stop_times_txt_rdd: RDD[(Long, String, Int)] = stop_times_csv
-        .filter(_ != stop_times_header) // Strip header
-        .map(_.split(",")) // Split with comma
-        .map(p => (p(0).drop(1).dropRight(1).toLong: Long,
-        p(3).drop(1).dropRight(1): String,
-        p(4).drop(1).dropRight(1).toInt: Int))
+        .mapPartitions(_
+          .filter(_ != stop_times_header) // Strip header
+          .map(_.split(",")) // Split with comma
+          .map(p =>
+          (p(0).drop(1).dropRight(1).toLong: Long, // trip_id
+            p(3).drop(1).dropRight(1): String, // stop_id
+            p(4).drop(1).dropRight(1).toInt: Int)) // sequence
+        )
       println("Read. Count: " + stop_times_txt_rdd.count())
 
-      val trip_ids = trips_df.select("id").distinct().map(f => f.toString.drop(1).dropRight(1).toLong).collect()
-
-      // Creating relationship trip_id <=> stop_id
-      val stop_times_df = SparkSqlContext.createDataFrame(stop_times_txt_rdd).toDF("trip_id", "stop_id", "sequence")
-        .join(trips_df.select("id").distinct().withColumnRenamed("id", "trip_id"), "trip_id")
-      //        .collect().map( f => (
-      //          f(0).toString.toLong : Long,  // trip_id
-      //          f(1).toString        : String,// stop_id
-      //          f(2).toString.toInt  : Int    // sequence
-      //      ))
-      //
-      //      val stop_times_rdd = SparkGlobalContext.broadcast(stop_times_arr)
-      //      val stop_times_df = SparkSqlContext.createDataFrame(stop_times_rdd.value).toDF("trip_id", "stop_id", "sequence")
-
-      println("Stop times OK. Count: " + stop_times_df.count())
+    val stop_times_df = SparkSqlContext.createDataFrame(stop_times_txt_rdd)
+      .toDF("trip_id", "stop_id", "sequence").join(trips_df, "trip_id")
+    println("Filtered. Count: " + stop_times_df.count())
+    //      stop_times_df.printSchema() // trip_id, stop_id, sequence(stop), shape_id
       // 21590
+    stop_times_df.write.format("parquet").mode(SaveMode.Overwrite).save(Parquet_StopTimes_File)
 
       stop_times_txt_rdd.unpersist()
 
       if (debug) println("Calculating stop distances by trip_id. Loop: ")
 
-      for (trip_id: Long <- trip_ids) {
+    val trip_ids_data = trips_df.select("trip_id", "shape_id").collect().map(f => (f(0).asInstanceOf[Long], f(1).asInstanceOf[String]))
 
+    trip_ids_data.foreach { pair => {
+
+      println("-----")
+      val trip_id = pair._1
         if (debug) println("| trip_id = " + trip_id)
 
         // Finding shape_id
-        val shape_id = trips_df.filter(col("id") === trip_id).select("shape_id")
-          .first().toString().drop(1).dropRight(1)
+        val shape_id = pair._2
         if (debug) println("| shape_id = " + shape_id)
 
         // Create DF of shapes collected (filtered too)
-        val shapes_df = GetShapesDF(shape_id)
-        //        shapes_df.printSchema() // id,sequence,lat1,lon1,lat2,lon2,dist
+        val shapes_df = GetShapesDF(shape_id).drop("id").drop("sequence")
+      //broadcast(shapes_df)
 
+      if (debug) print("| Steps OK: ")
         // Filtering and collecting relationship trip<=>stop by trip_id
-        val df1_data = stop_times_df.filter(stop_times_df("trip_id") === trip_id).drop("trip_id")
+        val df1 = stop_times_df.filter(col("trip_id") === trip_id).drop("trip_id")
           .join(stops_df.select("id", "lat", "lon").withColumnRenamed("id", "stop_id"), "stop_id")
-          .collect().map(f => (
-          f(0).toString: String, // stop_id
-          f(1).toString.toInt: Int, // sequence
-          f(2).toString.toDouble: Double, // lat
-          f(3).toString.toDouble: Double // lon
-          ))
-        val df1_rdd = SparkGlobalContext.broadcast(df1_data)
-        val df1 = SparkSqlContext.createDataFrame(df1_rdd.value).toDF("stop_id", "sequence", "lat", "lon")
-        if (debug) println("| Step 1. Count: " + df1.count())
-        //        df1.printSchema() // stop_id,sequence,lat,lon
-        //        df1.show(10)
+          .drop("shape_id")
+      if (debug) print("1 ")
 
         // Join with all shape points
-        val df2 = df1.join(shapes_df.drop("id").drop("sequence"))
-        if (debug) println("| Step 2. Count: " + df2.count())
-        //               df2.printSchema() // stop_id,sequence,lat,lon,lat1,lon1,lat2,lon2,dist
-        //               df2.show(10)
+        val df2 = df1.join(shapes_df)
+      df2.write.format("parquet").mode(SaveMode.Overwrite).save(HDFS_Dir + Parquet_Data + "temp.parquet")
+      shapes_df.unpersist()
+      df1.unpersist()
+      df2.unpersist()
+      if (debug) print("2 ")
 
         // Calculate cross-track distance
-        val df3_data = df2
-          .withColumn("approx",
-            crossTrackDistanceUDF(col("lat"), col("lon"), col("lat1"), col("lon1"), col("lat2"), col("lon2")))
-          .collect().map(f => (
-          f(0).toString: String, // stop_id
-          f(1).toString.toInt: Int, // sequence
-          f(2).toString.toDouble: Double, // lat
-          f(3).toString.toDouble: Double, // lon
-          f(4).toString.toDouble: Double, // lat1
-          f(5).toString.toDouble: Double, // lon1
-          f(6).toString.toDouble: Double, // lat2
-          f(7).toString.toDouble: Double, // lon2
-          f(8).toString.toDouble: Double, // dist
-          f(9).toString.toDouble: Double // approx
-          ))
-        val df3_rdd = SparkGlobalContext.broadcast(df3_data)
-        val df3 = SparkSqlContext.createDataFrame(df3_rdd.value)
-          .toDF("stop_id", "sequence", "lat", "lon", "lat1", "lon1", "lat2", "lon2", "dist", "approx")
-        if (debug) println("| Step 3. Count: " + df3.count())
-        df3.printSchema() // stop_id,sequence,lat,lon,lat1,lon1,lat2,lon2,dist,approx
-        //        println(df3.queryExecution)
-        df3.show(10)
+        val df3a = SparkSqlContext.read.parquet(HDFS_Dir + Parquet_Data + "temp.parquet")
+      //          .withColumn("onSegment", functions.callUDF("onSegment", col("lat"), col("lon"), col("lat1"), col("lon1"), col("lat2"), col("lon2")))
+      df3a.registerTempTable("df3a")
+      val df3 = SparkSqlContext.sql("select * from df3a where onSegment(lat,lon,lat1,lon1,lat2,lon2) = true")
+      //        df3.write.format("parquet").mode(SaveMode.Overwrite).save(Local_Dir + GTFS_Data + "df3.parquet")
+      //        df3.unpersist()
+      if (debug) print("3 ")
 
-        // TODO: A partir daqui tá travando o job. Otimizar!
-        // Find minimal cross-track distance (groupBy dropping other columns)
-        val df4 = df3.groupBy("stop_id", "lat", "lon", "sequence").min("approx")
-        if (debug) println("| Step 4. Count: " + df4.count())
-        df4.printSchema() // stop_id,lat,lon,sequence,min_approx
-        df4.show()
+      val df4 = df3 //SparkSqlContext.read.parquet(Local_Dir + GTFS_Data + "df3.parquet")
+        //          .filter(col("onSegment") === lit(true))
+        .withColumn("alongTrackDistance",
+        functions.callUDF("alongTrack", df3("lat"), df3("lon"), df3("lat1"), df3("lon1"), df3("lat2"), df3("lon2")))
+      //        df4.write.format("parquet").mode(SaveMode.Overwrite).save(Local_Dir + GTFS_Data + "df4.parquet")
+      //        df4.unpersist()
+      if (debug) print("4 ")
 
-        // Re-joining to recover along-track distance
-        val df5 = df4
-          .join(df3.drop("approx"), Seq("stop_id", "lat", "lon", "sequence"), "left_outer")
-          .filter(col("min_approx").isNotNull) // stop_id,lat,lon,sequence,min(approx),lat1,lon1,lat2,lon2,dist
-        df5.printSchema()
-        df5.show()
-        if (debug) println("| Step 5. Count: " + df5.count())
+      val df5 = df4 //SparkSqlContext.read.parquet(Local_Dir + GTFS_Data + "df4.parquet")
+        .withColumn("stop_dist", df4("total_dist") - df4("dist") + df4("alongTrackDistance"))
+      //        df5.write.format("parquet").mode(SaveMode.Overwrite).save(Local_Dir + GTFS_Data + "df5.parquet")
+      //        df5.unpersist()
+      if (debug) print("5 ")
 
-        val df6 = df5
-          .withColumn("alongTrackDistance",
-            col("dist") - alongTrackDistanceUDF(col("lat"), col("lon"), col("lat1"), col("lon1"), col("lat2"), col("lon2")))
+      val df6 = df5 //SparkSqlContext.read.parquet(Local_Dir + GTFS_Data + "df5.parquet")
           .drop("dist")
-          .withColumnRenamed("alongTrackDistance", "dist")
-          .select("stop_id", "sequence", "dist")
-        println("| Step 6. Count: " + df6.count)
-        df6.printSchema() // stop_id,sequence,dist
-        df6.show()
-        //        df5.write.mode("append").jdbc(DBConnectionString, "tripstop_", DBConnectionProperties)
+        .withColumnRenamed("stop_dist", "dist")
+        .withColumn("trip_id", lit(trip_id))
+        .select("trip_id", "stop_id", "sequence", "dist")
+      if (debug) print("6 ")
 
-        println("---")
-        //        val df8 = df7
-        //          .withColumn("alongTrackDistance",
-        //            col("dist") + alongTrackDistanceUDF(
-        //              df7.col("lat"), df7.col("lon"),
-        //              df7.col("lat1"),df7.col("lon1"),
-        //              df7.col("lat2"),df7.col("lon2")))
-        //          .select("stop_id", "trip_id", "sequence", "alongTrackDistance")
-        //          .withColumnRenamed("alongTrackDistance", "dist")
+      df6.write.mode(SaveMode.Append).parquet(Parquet_TripStops_File)
+      //df6.write.mode(SaveMode.Append).jdbc(DBConnectionString,"tripstop_",DBConnectionProperties)
+      if (debug) println("DB.")
 
-        //        df8.printSchema()
-        //        println("df8: " + df8.count())
-        //                df8.orderBy("sequence").show(10)
-        //        df5.write.mode("append").jdbc(DBConnectionString, "tripstop", DBConnectionProperties)
+      df3.unpersist()
+      df4.unpersist()
+      df5.unpersist()
+      df6.unpersist()
 
-
+      //        if (debug) println("-----")
+    }
       }
 
 
@@ -681,7 +614,6 @@ object Functions {
 
     }
 
-  }
 
   //
   //  def FindNearBuses(lat: Double, lon: Double, radius: Double) {
