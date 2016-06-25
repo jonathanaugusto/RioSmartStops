@@ -1,0 +1,15 @@
+<component name="libraryTable">
+  <library name="hadoop-2.7.2">
+    <CLASSES>
+      <root url="file:///usr/local/hadoop" />
+    </CLASSES>
+    <JAVADOC>
+      <root url="file:///usr/local/hadoop/share/doc/hadoop/common/api" />
+      <root url="file:///usr/local/hadoop/share/doc/hadoop/hdfs/api" />
+    </JAVADOC>
+    <SOURCES>
+      <root url="file:///usr/local/hadoop/share/hadoop/common/jdiff" />
+      <root url="file:///usr/local/hadoop/share/hadoop/hdfs/jdiff" />
+    </SOURCES>
+  </library>
+</component>
