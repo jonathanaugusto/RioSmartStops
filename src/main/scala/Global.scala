@@ -220,7 +220,6 @@ object Global {
     * @param shape_id  Identifier to related shape draw (see "Shape" below)
     */
   case class Trip(id: Long, route_id: String, direction: Int, headsign: String, shape_id: String)
-  SparkSqlContext.udf.register("onSegment", isOnSegmentFunction)
 
   /**
     * Class to represent bus stops.
@@ -368,7 +367,6 @@ object Global {
     }
     onSegment
   }
-
   val isOnSegmentFunction: (Double, Double, Double, Double, Double, Double) => Boolean =
     (lat: Double, lon: Double, lat1: Double, lon1: Double, lat2: Double, lon2: Double) => {
 
@@ -391,11 +389,12 @@ object Global {
         // if n0, n1 and n2 are collinear but n0 is outside n1->n2, n10.norm+n20.norm > n12.norm
         // if n0 is within n1->n2, n10norm+n20.norm ~== n12.norm
 
-        Math.abs(n10.norm + n20.norm - n12.norm) < 2e-7
+        Math.abs(n10.norm + n20.norm - n12.norm) < 3.5e-7
 
       }
     }
   val isOnSegmentUDF = functions.udf(isOnSegmentFunction)
+  SparkSqlContext.udf.register("onSegment", isOnSegmentFunction)
 
   def nearestPointOnSegment(point: (Double, Double), point1: (Double, Double), point2: (Double, Double)): (Double, Double) = {
     val n0 = toVector3D(point)
@@ -411,7 +410,6 @@ object Global {
     val pointOnSegment = nearestPointOnSegment(point, point1, point2)
     distance(point1, pointOnSegment)
   }
-
   val alongTrackDistanceFunction: (Double, Double, Double, Double, Double, Double) => Double =
     (lat: Double, lon: Double, lat1: Double, lon1: Double, lat2: Double, lon2: Double) => {
       val n0 = toVector3D((lat,lon))
@@ -420,10 +418,9 @@ object Global {
       val c1 = n1.cross(n2) // n1×n2 = vector representing great circle through p1, p2
       val c2 = n0.cross(c1) // n0×c1 = vector representing great circle through p0 normal to c1
       val n = c1.cross(c2)  // c2×c1 = nearest point on c1 to n0
-      EARTH_RADIUS * n0.angleTo(n)
+      EARTH_RADIUS * n1.angleTo(n)
     }
   val alongTrackDistanceUDF = functions.udf(alongTrackDistanceFunction)
-
   SparkSqlContext.udf.register("alongTrack", alongTrackDistanceFunction)
 
 
