@@ -89,14 +89,14 @@ object Functions {
   }
 
   def UpdateGTFSData() {
-    //    Convert()
+//    Convert()
     UpdateTripStops()
   }
 
-  //    def Convert() {
-  //      val a = SparkSqlContext.read.jdbc(DBConnectionString,"tripstop_",DBConnectionProperties)
-  //      a.write.mode(SaveMode.Overwrite).parquet(Parquet_TripStops_File)
-  //    }
+//    def Convert() {
+//      val a = SparkSqlContext.read.jdbc(DBConnectionString,"tripstop_",DBConnectionProperties)
+//      a.write.mode(SaveMode.Overwrite).parquet(Parquet_TripStops_File)
+//    }
 
   def GetRoutesDF(route_id: String = null, recursive: Boolean = false): DataFrame = {
 
@@ -499,32 +499,32 @@ object Functions {
 
       if (debug) println("Calculating stop distances by trip_id. Loop: ")
 
-    //    val trip_ids_data = trips_df.select("trip_id", "shape_id").collect().map(f => (f(0).asInstanceOf[Long], f(1).asInstanceOf[String]))
-    //
-    //    trip_ids_data.foreach { pair => {
-    //
-    //      println("-----")
-    //      val trip_id = pair._1
-    //        if (debug) println("| trip_id = " + trip_id)
-    //
-    //        // Finding shape_id
-    //        val shape_id = pair._2
-    //        if (debug) println("| shape_id = " + shape_id)
-    //
-    //        // Create DF of shapes collected (filtered too)
-    //        val shapes_f_df = shapes_df.filter(col("id") === shape_id)
+//    val trip_ids_data = trips_df.select("trip_id", "shape_id").collect().map(f => (f(0).asInstanceOf[Long], f(1).asInstanceOf[String]))
+//
+//    trip_ids_data.foreach { pair => {
+//
+//      println("-----")
+//      val trip_id = pair._1
+//        if (debug) println("| trip_id = " + trip_id)
+//
+//        // Finding shape_id
+//        val shape_id = pair._2
+//        if (debug) println("| shape_id = " + shape_id)
+//
+//        // Create DF of shapes collected (filtered too)
+//        val shapes_f_df = shapes_df.filter(col("id") === shape_id)
 
       if (debug) print("| Steps OK: ")
         // Filtering and collecting relationship trip<=>stop by trip_id
-        val df1 = stop_times_df //.filter(col("trip_id") === trip_id).drop("trip_id")
+        val df1 = stop_times_df//.filter(col("trip_id") === trip_id).drop("trip_id")
           .join(stops_df.select("id", "lat", "lon").withColumnRenamed("id", "stop_id"), "stop_id")
-    //.drop("shape_id")
+          //.drop("shape_id")
       if (debug) print("1 ")
 
         // Join with all shape points
         val df2 = df1.join(shapes_df, df1("shape_id") === shapes_df("id")) // shapes_f_df
-    //      df2.write.mode(SaveMode.Overwrite).parquet(HDFS_Dir + Parquet_Data + "temp.parquet")
-    shapes_df.unpersist()
+//      df2.write.mode(SaveMode.Overwrite).parquet(HDFS_Dir + Parquet_Data + "temp.parquet")
+      shapes_df.unpersist()
       df1.unpersist()
       df2.unpersist()
       if (debug) print("2 ")
@@ -559,8 +559,8 @@ object Functions {
         .select("trip_id", "stop_id", "sequence", "dist")
       if (debug) print("6 ")
 
-    //      df6.write.mode(SaveMode.Overwrite).parquet(Parquet_TripStops_File)
-    df6.write.mode(SaveMode.Overwrite).jdbc(DBConnectionString, "tripstop_", DBConnectionProperties)
+//      df6.write.mode(SaveMode.Overwrite).parquet(Parquet_TripStops_File)
+      df6.write.mode(SaveMode.Overwrite).jdbc(DBConnectionString,"tripstop_",DBConnectionProperties)
       if (debug) println("DB.")
 
       df3a.unpersist()
@@ -570,8 +570,8 @@ object Functions {
       df6.unpersist()
 
       //        if (debug) println("-----")
-    //    }
-    //      }
+//    }
+//      }
 
     //remove(HDFS_Dir + Parquet_Data + "temp")
 

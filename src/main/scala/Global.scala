@@ -51,19 +51,19 @@ object Global {
   val Parquet_TripStops_File = HDFS_Dir + Parquet_Data + "tripstops.parquet"
 
   // Filenames to local data saved
-  //  val Bus_GPS_Data_File = Local_Dir + GPS_Data + "onibus.json"
+//  val Bus_GPS_Data_File = Local_Dir + GPS_Data + "onibus.json"
   val BRT_GPS_Data_File = Local_Dir + GPS_Data + "brt.json"
   val Test_GPS_Data_File = Local_Dir + GPS_Data + "test.json"
 
   // Spark configuration
   val SparkConf = new SparkConf().setAppName("RioSmartStops")
-    //    .setMaster("yarn-client")
+//    .setMaster("yarn-client")
     .setMaster("spark://localhost:7077")
     .set("spark.io.compression.codec", "lz4")
     .set("spark.speculation", "false")
-  //.set("spark.driver.memory", "4g")
-  //.set("spark.executor.memory", "4g")
-  //.set("spark.cleaner.ttl", "6000")
+    //.set("spark.driver.memory", "4g")
+    //.set("spark.executor.memory", "4g")
+    //.set("spark.cleaner.ttl", "6000")
 
   // Global contexts
 
@@ -102,65 +102,6 @@ object Global {
   val GlobalRegex = ",(?=([^\"]*\"[^\"]*\")*[^\"]*$)".r
   // Splitting with commas but not ones inside quotes
   val BRSRegex = "\\bBRS?\\b (([ABCDI0-9])+, ?)+([A-Za-z0-9 -])+".r
-  val EARTH_RADIUS = 6371000
-
-  /*, arrival: DateType, departure: DateType */
-  val distanceFunction: (Double, Double, Double, Double) => Double =
-    (lat1: Double, lon1: Double, lat2: Double, lon2: Double) => {
-      if (lat1 == lat2 && lon1 == lon2) .0
-      else {
-        val a = toVector3D((lat1, lon1))
-        val b = toVector3D((lat2, lon2))
-        EARTH_RADIUS * a.angleTo(b)
-      }
-  }
-  val distanceUDF = functions.udf(distanceFunction)
-
-  //   Sort:
-  //   Sorting.quickSort(array)(function)
-  //   array.ordered
-  val isOnSegmentFunction: (Double, Double, Double, Double, Double, Double) => Boolean =
-    (lat: Double, lon: Double, lat1: Double, lon1: Double, lat2: Double, lon2: Double) => {
-
-      if (lat1 == lat2 && lon1 == lon2)
-        lat1 == lat && lon1 == lon
-      else {
-        // n-vectors
-        val n0 = toVector3D((lat, lon))
-        val n1 = toVector3D((lat1, lon1))
-        val n2 = toVector3D((lat2, lon2))
-
-        // get vectors representing p0->p1, p2->p1, p0->p2, p1->p2
-        val n10 = n0.minus(n1)
-        val n12 = n2.minus(n1)
-        val n20 = n0.minus(n2)
-        val n21 = n1.minus(n2)
-
-        // n12.norm == n21.norm always
-        // if n0, n1 and n2 form a triangle, n10.norm+n20.norm > n12.norm
-        // if n0, n1 and n2 are collinear but n0 is outside n1->n2, n10.norm+n20.norm > n12.norm
-        // if n0 is within n1->n2, n10norm+n20.norm ~== n12.norm
-
-        Math.abs(n10.norm + n20.norm - n12.norm) < 2e-7
-
-      }
-    }
-  val isOnSegmentUDF = functions.udf(isOnSegmentFunction)
-  val alongTrackDistanceFunction: (Double, Double, Double, Double, Double, Double) => Double =
-    (lat: Double, lon: Double, lat1: Double, lon1: Double, lat2: Double, lon2: Double) => {
-      val n0 = toVector3D((lat, lon))
-      val n1 = toVector3D((lat1, lon1))
-      val n2 = toVector3D((lat2, lon2))
-      val c1 = n1.cross(n2) // n1×n2 = vector representing great circle through p1, p2
-      val c2 = n0.cross(c1) // n0×c1 = vector representing great circle through p0 normal to c1
-      val n = c1.cross(c2) // c2×c1 = nearest point on c1 to n0
-      EARTH_RADIUS * n0.angleTo(n)
-  }
-
-  // http://www.movable-type.co.uk/scripts/latlong.html
-  // http://www.movable-type.co.uk/scripts/latlong-vectors.html
-  // https://en.wikipedia.org/wiki/Great-circle_distance#Vector_version
-  val alongTrackDistanceUDF = functions.udf(alongTrackDistanceFunction)
 
   // Format bus line codes (remove "", ".0" suffix and define length >= 3)
   def formatBusLine(id: String): String = {
@@ -192,112 +133,48 @@ object Global {
 
   def randomDirectionID(): Int = new Random().nextInt(1)
 
-  def euclideanDistance(point1: (Double, Double), point2: (Double, Double)): Double = {
-    // Euclidean distance
-    val dx = point2._1 - point1._1
-    val dy = point2._2 - point1._2
-    math.sqrt(dx * dx + dy * dy) * 100000
-  }
-
-  def projection(point: (Double, Double), point1: (Double, Double), point2: (Double, Double)):
-  (Double, Double) = {
-    val delta_lat = point2._1 - point1._1
-    val delta_lon = point2._2 - point1._2
-    val d = ((delta_lat * (point._1 - point1._1)) + (delta_lon * (point._2 - point1._2))) / ((delta_lat * delta_lat) + (delta_lon * delta_lon))
-    val proj_lat = point1._1 + delta_lat * d
-    val proj_lon = point1._2 + delta_lon * d
-    //if (proj_lat < point2._1 && proj_lat > point1._1 && proj_lon < point2._2 && proj_lon > point1._2)
-    (proj_lat, proj_lon)
-    //(-1, -1)
-  }
-
   def remove(p: String) {
     val hadoopConf = SparkGlobalContext.hadoopConfiguration
     val hdfs = org.apache.hadoop.fs.FileSystem.get(hadoopConf)
     try {
       hdfs.delete(new org.apache.hadoop.fs.Path(p), true)
-    } catch {
-      case e: Exception =>
-        println(e)
+    } catch{ case e: Exception =>
+      println(e)
     }
-
-
   }
 
-  /*def exists(dir: String, filename: String): Boolean = {
-    val conf = new Configuration()
-    conf.set("fs.defaultFS", dir)
-    val fs = FileSystem.get(conf)
-    val path = new Path(dir + filename)
-    fs.exists(path)
-  }
-
-
-
-  // Download raw data if boolean is set true
-  // and remote and local files are different.
-
-  def GetData(remoteFile: String, localDir: String, localFilename: String): Boolean = {
-
-    if (((remoteFile == GPSRawDataHttpFile) && !getNewGPSData) ||
-      ((remoteFile != GPSRawDataHttpFile) && !getNewData)) {
-      println("getData = false. I won't download anything")
-      return false
+  //   sort by order
+  object ShapeOrdering extends Ordering[Shape] {
+    def compare(a: Shape, b: Shape) = {
+      if (a.id.toInt == b.id.toInt)
+        a.sequence compare b.sequence
+      else
+        a.id.toInt compare b.id.toInt
     }
-
-    // Get http file and save to hdfs
-    val conf = new Configuration()
-    conf.set("fs.defaultFS", localDir)
-
-    val fs = FileSystem.get(conf)
-    val path = new Path(localDir + localFilename)
-
-    // File not exists => Create new file
-    // File exists
-    //  |- Hash is different => Create new file
-    //  |- Hash is the same => Nothing to do
-
-    // Trying to connect in order to get new GPS raw data
-    var source: BufferedSource = null
-    try source = Source.fromURL(remoteFile, "ISO-8859-1")
-
-    catch {
-      case e: Exception => println("Unable to connect to " + remoteFile)
-        return false
-    }
-    finally
-
-    // If connection was successful, verify hashcodes of local and remote files.
-    // If both are different, download new data
-      if ((source != null) && !(fs.exists(path) && fs.hashCode() == source.hashCode())) {
-        println("Retrieving new data... " + localFilename)
-        val os = fs.create(path)
-        source.foreach(c => os.write(c.toChar))
-        os.write('\n')
-        os.flush()
-        os.close()
-      }
-    true
   }
 
-  def openFile(file: String): RDD[String] = {
-    val a: RDD[String] =
-      try {
-        SparkGlobalContext.textFile(BusLinesDir + BusLineStopsFilename(file))
-      }
-      catch {
-        case e: Exception => {
-          println("No file.")
-          null
-        }
-      }
-    a
-  }
-
-*/
   def showAll(df: DataFrame): Unit = {
     df.show(df.count().toInt)
   }
+
+//  def euclideanDistance(point1: (Double, Double), point2: (Double, Double)): Double = {
+    //    // Euclidean distance
+    //    val dx = point2._1 - point1._1
+    //    val dy = point2._2 - point1._2
+    //    math.sqrt(dx * dx + dy * dy) * 100000
+    //  }
+    //
+    //  def projection(point: (Double, Double), point1: (Double, Double), point2: (Double, Double)):
+    //  (Double, Double) = {
+    //    val delta_lat = point2._1 - point1._1
+    //    val delta_lon = point2._2 - point1._2
+    //    val d = ((delta_lat * (point._1 - point1._1)) + (delta_lon * (point._2 - point1._2))) / ((delta_lat * delta_lat) + (delta_lon * delta_lon))
+    //    val proj_lat = point1._1 + delta_lat * d
+    //    val proj_lon = point1._2 + delta_lon * d
+    //    //if (proj_lat < point2._1 && proj_lat > point1._1 && proj_lon < point2._2 && proj_lon > point1._2)
+    //    (proj_lat, proj_lon)
+    //    //(-1, -1)
+    //  }
 
   // Stop Spark context
   def stop() {
@@ -305,71 +182,8 @@ object Global {
     SparkGlobalContext.stop()
   }
 
-  def isOnSegment(p0_lat: Double, p0_lon: Double, p1_lat: Double, p1_lon: Double, p2_lat: Double, p2_lon: Double): Boolean = {
+  // ---------------- CLASSES
 
-    var onSegment = false
-
-    if (p1_lat == p2_lat && p1_lon == p2_lon)
-      onSegment = p0_lat == p1_lat && p0_lon == p1_lon
-    else {
-      // n-vectors
-      val n0 = toVector3D((p0_lat, p0_lon))
-      val n1 = toVector3D((p1_lat, p1_lon))
-      val n2 = toVector3D((p2_lat, p2_lon))
-      // get vectors representing p0->p1, p0->p2, p1->p2, p2->p1
-      val n10 = n0.minus(n1)
-      val n12 = n2.minus(n1)
-      val n20 = n0.minus(n2)
-      val n21 = n1.minus(n2)
-
-      // dot product p0->p1⋅p2->p1 tells us if p0 is on p2 side of p1, similarly for p0->p2⋅p1->p2
-      val extent1 = n10.dot(n12)
-      val extent2 = n20.dot(n21)
-
-      onSegment = extent1 >= 0 && extent2 >= 0
-
-      // n12.norm == n21.norm always
-      // if n0, n1 and n2 form a triangle, n10.norm+n20.norm > n12.norm
-      // if n0, n1 and n2 are collinear but n0 is outside n1->n2, n10.norm+n20.norm > n12.norm
-      // if n0 is within n1->n2, n10norm+n20.norm ~== n12.norm
-
-      //      onSegment = Math.abs(n10.norm + n20.norm - n12.norm) < 3e-7
-
-    }
-    onSegment
-  }
-
-  def toVector3D(point: (Double, Double)): Vector3D = {
-    val lat = Math.toRadians(point._1)
-    val lon = Math.toRadians(point._2)
-    // right-handed vector: x -> 0°E,0°N; y -> 90°E,0°N, z -> 90°N
-    val x = Math.cos(lat) * Math.cos(lon)
-    val y = Math.cos(lat) * Math.sin(lon)
-    val z = Math.sin(lat)
-    new Vector3D(x, y, z)
-  }
-
-  def alongTrackDistance(point: (Double, Double), point1: (Double, Double), point2: (Double, Double)): Double = {
-    val pointOnSegment = nearestPointOnSegment(point, point1, point2)
-    distance(point1, pointOnSegment)
-  }
-
-  def distance(point1: (Double, Double), point2: (Double, Double)): Double = {
-    if (point1._1 == point2._1 && point1._2 == point2._2) return .0
-    val a = toVector3D(point1)
-    val b = toVector3D(point2)
-    EARTH_RADIUS * a.angleTo(b)
-  }
-
-  def nearestPointOnSegment(point: (Double, Double), point1: (Double, Double), point2: (Double, Double)): (Double, Double) = {
-    val n0 = toVector3D(point)
-    val n1 = toVector3D(point1)
-    val n2 = toVector3D(point2)
-    val c1 = n1.cross(n2) // n1×n2 = vector representing great circle through p1, p2
-    val c2 = n0.cross(c1) // n0×c1 = vector representing great circle through p0 normal to c1
-    val n = c1.cross(c2) // c2×c1 = nearest point on c1 to n0
-    n.toLatLon()
-  }
 
   /**
     * Class to represent GPS realtime data from Internet
@@ -406,7 +220,6 @@ object Global {
     * @param shape_id  Identifier to related shape draw (see "Shape" below)
     */
   case class Trip(id: Long, route_id: String, direction: Int, headsign: String, shape_id: String)
-
   SparkSqlContext.udf.register("onSegment", isOnSegmentFunction)
 
   /**
@@ -453,14 +266,18 @@ object Global {
     */
   case class Fare(id: String, price: Float, transfers: Int, transfer_duration: Int)
 
-  SparkSqlContext.udf.register("alongTrack", alongTrackDistanceFunction)
+  // ------------------- LAT/LON OPERATIONS
+
+  // http://www.movable-type.co.uk/scripts/latlong.html
+  // http://www.movable-type.co.uk/scripts/latlong-vectors.html
+  // https://en.wikipedia.org/wiki/Great-circle_distance#Vector_version
+
+  val EARTH_RADIUS = 6371000
 
   case class Vector3D(x: Double, y: Double, z: Double) {
     def plus(v: Vector3D): Vector3D = new Vector3D(x + v.x, y + v.y, z + v.z)
-
     def minus(v: Vector3D): Vector3D = new Vector3D(x - v.x, y - v.y, z - v.z)
-
-    override def equals(o: Any) = o match {
+    override def equals (o: Any) = o match {
       case that: Vector3D => {
         val v: Vector3D = o.asInstanceOf[Vector3D]
         x == v.x && y == v.y && z == v.z
@@ -472,8 +289,8 @@ object Global {
       var sin = this.cross(v).norm
       val cos = this.dot(v)
       // use sign as reference to get sign of sin
-      if (sign != null && this.cross(v).dot(sign) < 0) sin = -1 * sin
-      Math.atan2(sin, cos)
+      if (sign != null && this.cross(v).dot(sign) < 0)  sin = -1 * sin
+      Math.atan2(sin,cos)
     }
 
     def dot(v: Vector3D): Double = x * v.x + y * v.y + z * v.z
@@ -488,54 +305,162 @@ object Global {
       (Math.toDegrees(lat_rad), Math.toDegrees(lon_rad))
     }
   }
+  def toVector3D(point: (Double, Double)): Vector3D = {
+    val lat = Math.toRadians(point._1)
+    val lon = Math.toRadians(point._2)
+    // right-handed vector: x -> 0°E,0°N; y -> 90°E,0°N, z -> 90°N
+    val x = Math.cos(lat) * Math.cos(lon)
+    val y = Math.cos(lat) * Math.sin(lon)
+    val z = Math.sin(lat)
+    new Vector3D(x, y, z)
+  }
 
-  //  SparkSqlContext.udf.register("alongTrackDistance", (point: (Double, Double), point1: (Double, Double), point2: (Double, Double)) => {
-  //    alongTrackDistance (point, point1, point2)
-  //  })
 
-  //   val SparkGlobalContext = sc
-  //   val SparkSqlContext = sqlContext
-  //   import org.apache.spark.sql.functions
+  def distance(point1: (Double, Double), point2: (Double, Double)): Double = {
+    if (point1._1 == point2._1 && point1._2 == point2._2) return .0
+    val a = toVector3D(point1)
+    val b = toVector3D(point2)
+    EARTH_RADIUS * a.angleTo(b)
+  }
+
+  val distanceFunction: (Double, Double, Double, Double) => Double =
+    (lat1: Double, lon1: Double, lat2: Double, lon2: Double) => {
+    if (lat1 == lat2 && lon1 == lon2) .0
+    else {
+      val a = toVector3D((lat1, lon1))
+      val b = toVector3D((lat2, lon2))
+      EARTH_RADIUS * a.angleTo(b)
+    }
+  }
+  val distanceUDF = functions.udf(distanceFunction)
+
+
+  def isOnSegment(p0_lat: Double, p0_lon: Double, p1_lat: Double, p1_lon: Double, p2_lat: Double, p2_lon: Double): Boolean = {
+
+    var onSegment = false
+
+    if (p1_lat == p2_lat && p1_lon == p2_lon)
+      onSegment = p0_lat == p1_lat && p0_lon == p1_lon
+    else {
+      // n-vectors
+      val n0 = toVector3D((p0_lat, p0_lon))
+      val n1 = toVector3D((p1_lat, p1_lon))
+      val n2 = toVector3D((p2_lat, p2_lon))
+      // get vectors representing p0->p1, p0->p2, p1->p2, p2->p1
+      val n10 = n0.minus(n1)
+      val n12 = n2.minus(n1)
+      val n20 = n0.minus(n2)
+      val n21 = n1.minus(n2)
+
+      // dot product p0->p1⋅p2->p1 tells us if p0 is on p2 side of p1, similarly for p0->p2⋅p1->p2
+      val extent1 = n10.dot(n12)
+      val extent2 = n20.dot(n21)
+
+      onSegment = extent1 >= 0 && extent2 >= 0
+
+      // n12.norm == n21.norm always
+      // if n0, n1 and n2 form a triangle, n10.norm+n20.norm > n12.norm
+      // if n0, n1 and n2 are collinear but n0 is outside n1->n2, n10.norm+n20.norm > n12.norm
+      // if n0 is within n1->n2, n10norm+n20.norm ~== n12.norm
+
+      //      onSegment = Math.abs(n10.norm + n20.norm - n12.norm) < 3e-7
+
+    }
+    onSegment
+  }
+
+  val isOnSegmentFunction: (Double, Double, Double, Double, Double, Double) => Boolean =
+    (lat: Double, lon: Double, lat1: Double, lon1: Double, lat2: Double, lon2: Double) => {
+
+      if (lat1 == lat2 && lon1 == lon2)
+        lat1 == lat && lon1 == lon
+      else {
+        // n-vectors
+        val n0 = toVector3D((lat, lon))
+        val n1 = toVector3D((lat1, lon1))
+        val n2 = toVector3D((lat2, lon2))
+
+        // get vectors representing p0->p1, p2->p1, p0->p2, p1->p2
+        val n10 = n0.minus(n1)
+        val n12 = n2.minus(n1)
+        val n20 = n0.minus(n2)
+        val n21 = n1.minus(n2)
+
+        // n12.norm == n21.norm always
+        // if n0, n1 and n2 form a triangle, n10.norm+n20.norm > n12.norm
+        // if n0, n1 and n2 are collinear but n0 is outside n1->n2, n10.norm+n20.norm > n12.norm
+        // if n0 is within n1->n2, n10norm+n20.norm ~== n12.norm
+
+        Math.abs(n10.norm + n20.norm - n12.norm) < 2e-7
+
+      }
+    }
+  val isOnSegmentUDF = functions.udf(isOnSegmentFunction)
+
+  def nearestPointOnSegment(point: (Double, Double), point1: (Double, Double), point2: (Double, Double)): (Double, Double) = {
+    val n0 = toVector3D(point)
+    val n1 = toVector3D(point1)
+    val n2 = toVector3D(point2)
+    val c1 = n1.cross(n2) // n1×n2 = vector representing great circle through p1, p2
+    val c2 = n0.cross(c1) // n0×c1 = vector representing great circle through p0 normal to c1
+    val n = c1.cross(c2)  // c2×c1 = nearest point on c1 to n0
+    n.toLatLon()
+  }
+
+  def alongTrackDistance(point: (Double, Double), point1: (Double, Double), point2: (Double, Double)): Double = {
+    val pointOnSegment = nearestPointOnSegment(point, point1, point2)
+    distance(point1, pointOnSegment)
+  }
+
+  val alongTrackDistanceFunction: (Double, Double, Double, Double, Double, Double) => Double =
+    (lat: Double, lon: Double, lat1: Double, lon1: Double, lat2: Double, lon2: Double) => {
+      val n0 = toVector3D((lat,lon))
+      val n1 = toVector3D((lat1,lon1))
+      val n2 = toVector3D((lat2,lon2))
+      val c1 = n1.cross(n2) // n1×n2 = vector representing great circle through p1, p2
+      val c2 = n0.cross(c1) // n0×c1 = vector representing great circle through p0 normal to c1
+      val n = c1.cross(c2)  // c2×c1 = nearest point on c1 to n0
+      EARTH_RADIUS * n0.angleTo(n)
+    }
+  val alongTrackDistanceUDF = functions.udf(alongTrackDistanceFunction)
+
+  SparkSqlContext.udf.register("alongTrack", alongTrackDistanceFunction)
+
+
+//   val SparkGlobalContext = sc
+//   val SparkSqlContext = sqlContext
+//   import org.apache.spark.sql.functions
   // -22.922103514765354,-43.263407553315915
   // -22.921769186398762,-43.26256425004004
   // -22.921091593102517,-43.26088752433975
 
 
-  //  def crossTrackDistance(point: (Double, Double), point1: (Double, Double), point2: (Double, Double)): Double = {
-  //    if (point1._1 == point2._1 && point1._2 == point2._2)
-  //      return distance(point, point1)
-  //    else {
-  //      val the_point = toVector3D(point)
-  //      val greatCircle = toVector3D(point1).cross(toVector3D(point2))
-  //      var angle = greatCircle.angleTo(the_point, the_point.cross(greatCircle)) // (signed) angle between point & great-circle normal vector
-  //      if (angle < 0) angle = -1 * Math.PI / 2 - angle else Math.PI / 2 - angle // (signed) angle between point & great-circle
-  //      EARTH_RADIUS * angle // -ve if to left, +ve if to right of path. In this case, we need just abs values
-  //    }
-  //  }
-  //
-  //  val crossTrackDistanceFunction: (Double, Double, Double, Double, Double, Double) => Double =
-  //    (lat: Double, lon: Double, lat1: Double, lon1: Double, lat2: Double, lon2: Double) => {
-  //      if (lat1 == lat2 && lon1 == lon2)
-  //        distance((lat,lon), (lat1,lon1))
-  //      else {
-  //        val the_point = toVector3D((lat, lon))
-  //        val greatCircle = toVector3D((lat1, lon1)).cross(toVector3D((lat2, lon2)))
-  //        var angle = greatCircle.angleTo(the_point, the_point.cross(greatCircle)) // (signed) angle between point & great-circle normal vector
-  //        if (angle < 0) angle = -1 * Math.PI / 2 - angle else Math.PI / 2 - angle // (signed) angle between point & great-circle
-  //        abs(EARTH_RADIUS * angle) // -ve if to left, +ve if to right of path
-  //      }
-  //    }
-  //  val crossTrackDistanceUDF = functions.udf(crossTrackDistanceFunction)
+//  def crossTrackDistance(point: (Double, Double), point1: (Double, Double), point2: (Double, Double)): Double = {
+//    if (point1._1 == point2._1 && point1._2 == point2._2)
+//      return distance(point, point1)
+//    else {
+//      val the_point = toVector3D(point)
+//      val greatCircle = toVector3D(point1).cross(toVector3D(point2))
+//      var angle = greatCircle.angleTo(the_point, the_point.cross(greatCircle)) // (signed) angle between point & great-circle normal vector
+//      if (angle < 0) angle = -1 * Math.PI / 2 - angle else Math.PI / 2 - angle // (signed) angle between point & great-circle
+//      EARTH_RADIUS * angle // -ve if to left, +ve if to right of path. In this case, we need just abs values
+//    }
+//  }
+//
+//  val crossTrackDistanceFunction: (Double, Double, Double, Double, Double, Double) => Double =
+//    (lat: Double, lon: Double, lat1: Double, lon1: Double, lat2: Double, lon2: Double) => {
+//      if (lat1 == lat2 && lon1 == lon2)
+//        distance((lat,lon), (lat1,lon1))
+//      else {
+//        val the_point = toVector3D((lat, lon))
+//        val greatCircle = toVector3D((lat1, lon1)).cross(toVector3D((lat2, lon2)))
+//        var angle = greatCircle.angleTo(the_point, the_point.cross(greatCircle)) // (signed) angle between point & great-circle normal vector
+//        if (angle < 0) angle = -1 * Math.PI / 2 - angle else Math.PI / 2 - angle // (signed) angle between point & great-circle
+//        abs(EARTH_RADIUS * angle) // -ve if to left, +ve if to right of path
+//      }
+//    }
+//  val crossTrackDistanceUDF = functions.udf(crossTrackDistanceFunction)
 
-  //   sort by order
-  object ShapeOrdering extends Ordering[Shape] {
-    def compare(a: Shape, b: Shape) = {
-      if (a.id.toInt == b.id.toInt)
-        a.sequence compare b.sequence
-      else
-        a.id.toInt compare b.id.toInt
-    }
-  }
 
 
   //  val crossTrackDistanceUDF = functions.udf {
