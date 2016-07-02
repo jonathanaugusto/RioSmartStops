@@ -11,9 +11,8 @@ package RioSmartStops
 
 import java.sql.Timestamp
 
-//import org.apache.commons.math3.geometry.euclidean.threed.Vector3D
-import org.apache.spark.sql.{DataFrame, SQLContext, functions}
-import org.apache.spark.{SparkConf, SparkContext}
+import org.apache.spark._
+import org.apache.spark.sql._
 
 import scala.math._
 import scala.util.Random
@@ -29,12 +28,15 @@ object Global {
   val GTFS_Package_URL = "http://dadosabertos2.rio.rj.gov.br/dadoaberto/google-transit/google_transit.zip"
 
   // Local directory to save files
-  val Local_Dir = "file:////home/jonny/RioSmartStops/"
-  val HDFS_Dir = "hdfs:///usr/local/RioSmartStops/"
+  val Local_Dir = "file:////usr/local/RioSmartStops/"
+//  val HDFS_Dir = "hdfs:///usr/local/RioSmartStops/"
   val GTFS_Data = "data/gtfs/"
   val GPS_Data = "data/gps/"
   val Parquet_Data = "data/parquet/"
-  val Checkpoint = "bkp/"
+  val Checkpoint_Dir = "bkp/"
+  val Log_Dir = "log/"
+
+  // Filenames to local data saved
   val GTFS_Fare_Attributes_File = Local_Dir + GTFS_Data + "fare_attributes.txt"
   val GTFS_Fare_Rules_File = Local_Dir + GTFS_Data + "fare_rules.txt"
   val GTFS_Routes_File = Local_Dir + GTFS_Data + "routes.txt"
@@ -42,35 +44,31 @@ object Global {
   val GTFS_Stops_File = Local_Dir + GTFS_Data + "stops.txt"
   val GTFS_Trips_File = Local_Dir + GTFS_Data + "trips.txt"
   val GTFS_Stop_Times_File = Local_Dir + GTFS_Data + "stop_times.txt"
-  val Parquet_Fares_File = HDFS_Dir + Parquet_Data + "fares.parquet"
-  val Parquet_Routes_File = HDFS_Dir + Parquet_Data + "routes.parquet"
-  val Parquet_Shapes_File = HDFS_Dir + Parquet_Data + "shapes.parquet"
-  val Parquet_Stops_File = HDFS_Dir + Parquet_Data + "stops.parquet"
-  val Parquet_Trips_File = HDFS_Dir + Parquet_Data + "trips.parquet"
-  val Parquet_StopTimes_File = HDFS_Dir + Parquet_Data + "stop_times.parquet"
-  val Parquet_TripStops_File = HDFS_Dir + Parquet_Data + "tripstops.parquet"
-
-  // Filenames to local data saved
-//  val Bus_GPS_Data_File = Local_Dir + GPS_Data + "onibus.json"
-  val BRT_GPS_Data_File = Local_Dir + GPS_Data + "brt.json"
-  val Test_GPS_Data_File = Local_Dir + GPS_Data + "test.json"
+  val Parquet_Fares_File = Local_Dir + Parquet_Data + "fares.parquet"
+  val Parquet_Routes_File = Local_Dir + Parquet_Data + "routes.parquet"
+  val Parquet_Shapes_File = Local_Dir + Parquet_Data + "shapes.parquet"
+  val Parquet_Stops_File = Local_Dir + Parquet_Data + "stops.parquet"
+  val Parquet_Trips_File = Local_Dir + Parquet_Data + "trips.parquet"
+  val Parquet_StopTimes_File = Local_Dir + Parquet_Data + "stop_times.parquet"
+  val Parquet_TripStops_File = Local_Dir + Parquet_Data + "tripstops.parquet"
+  val Parquet_GPSData_File = Local_Dir + Parquet_Data + "gpsdata.parquet"
+  val GPS_Bus_Data_File = Local_Dir + GPS_Data + "onibus.json"
+  val GPS_BRT_Data_File = Local_Dir + GPS_Data + "brt.json"
+  val GPS_Test_Data_File = Local_Dir + GPS_Data + "test.json"
 
   // Spark configuration
-  val SparkConf = new SparkConf().setAppName("RioSmartStops")
+  val SparkConf = new SparkConf()
 //    .setMaster("yarn-client")
     .setMaster("spark://localhost:7077")
     .set("spark.io.compression.codec", "lz4")
     .set("spark.speculation", "false")
+    .set("parquet.read.support.class", "parquet.avro.AvroReadSupport")
+//    .set("spark.eventLog.enabled", "true")
+//    .set("spark.eventLog.dir", Local_Dir + Log_Dir)
     //.set("spark.driver.memory", "4g")
     //.set("spark.executor.memory", "4g")
     //.set("spark.cleaner.ttl", "6000")
 
-  // Global contexts
-
-  val SparkGlobalContext = SparkContext.getOrCreate(SparkConf)
-  val SparkSqlContext = new SQLContext(SparkGlobalContext)
-  //  val SparkStreamingContext = new StreamingContext(Checkpoint_Dir, SparkGlobalContext)
-  //  var GPSDataQueue: Queue[RDD[GPSData]] = Queue()
 
   // DataFrame for GPS formatted data
   //  var GPSDataDF: DataFrame = null
@@ -133,16 +131,6 @@ object Global {
 
   def randomDirectionID(): Int = new Random().nextInt(1)
 
-  def remove(p: String) {
-    val hadoopConf = SparkGlobalContext.hadoopConfiguration
-    val hdfs = org.apache.hadoop.fs.FileSystem.get(hadoopConf)
-    try {
-      hdfs.delete(new org.apache.hadoop.fs.Path(p), true)
-    } catch{ case e: Exception =>
-      println(e)
-    }
-  }
-
   //   sort by order
   object ShapeOrdering extends Ordering[Shape] {
     def compare(a: Shape, b: Shape) = {
@@ -176,12 +164,6 @@ object Global {
     //    //(-1, -1)
     //  }
 
-  // Stop Spark context
-  def stop() {
-    //SparkStreamingContext.stop()
-    SparkGlobalContext.stop()
-  }
-
   // ---------------- CLASSES
 
 
@@ -196,7 +178,7 @@ object Global {
     * @param vel           Captured velocity
     */
   case class GPSData(datetime: Timestamp, serial_number: String,
-                     route_code: String, lat: Double, lon: Double, vel: Double)
+                     route_code: String, lat: Double, lon: Double, vel: Double, direction: String)
 
   /**
     * Class to represent bus lines, aligned with GTFS definition.
@@ -204,11 +186,12 @@ object Global {
     * @param id      Unique string to represent each bus line
     * @param code    Short identifier, like well-known numeric codes
     * @param name    Bus line title with origin and destination
-    * @param info    More info about this route (data provided by Fetranspor brings 'Vá de Önibus' URL)
+    * @param description    More info about this route (data provided by Fetranspor brings 'Vá de Önibus' URL)
     * @param color   Color for shape drawing
     * @param fare_id ID for fare rule (see "Fare" below)
     */
-  case class Route(id: String, code: String, name: String, info: String, color: String, fare_id: String)
+  case class Route(id: String, code: String, name: String, description: String,
+                   dest1: String, dest2: String, color: String, fare_id: String)
 
   /**
     * Class to represent a bus line trip (origin->destination and destination-> origin are two different trips)
@@ -227,11 +210,11 @@ object Global {
     * @param id   Unique identifier for each stop
     * @param code Abbreviation code
     * @param name Stop name (if any; if not, copied from "Stop description" below)
-    * @param desc Stop description (like approximated address)
+    * @param info Stop description (like approximated address)
     * @param lat  Latitude
     * @param lon  Longitude
     */
-  case class Stop(id: String, code: String, name: String, desc: String,
+  case class Stop(id: String, code: String, name: String, info: String,
                   lat: Double, lon: Double)
 
   /**
@@ -243,6 +226,7 @@ object Global {
     * @param lat2
     * @param lon2
     * @param dist
+    * @param total_dist
     */
   case class Shape(id: String, sequence: Long, lat1: Double, lon1: Double,
                    lat2: Double, lon2: Double, dist: Double, total_dist: Double)
@@ -389,12 +373,11 @@ object Global {
         // if n0, n1 and n2 are collinear but n0 is outside n1->n2, n10.norm+n20.norm > n12.norm
         // if n0 is within n1->n2, n10norm+n20.norm ~== n12.norm
 
-        Math.abs(n10.norm + n20.norm - n12.norm) < 3.5e-7
+        Math.abs(n10.norm + n20.norm - n12.norm) < 3.3e-7
 
       }
     }
   val isOnSegmentUDF = functions.udf(isOnSegmentFunction)
-  SparkSqlContext.udf.register("onSegment", isOnSegmentFunction)
 
   def nearestPointOnSegment(point: (Double, Double), point1: (Double, Double), point2: (Double, Double)): (Double, Double) = {
     val n0 = toVector3D(point)
@@ -421,7 +404,6 @@ object Global {
       EARTH_RADIUS * n1.angleTo(n)
     }
   val alongTrackDistanceUDF = functions.udf(alongTrackDistanceFunction)
-  SparkSqlContext.udf.register("alongTrack", alongTrackDistanceFunction)
 
 
 //   val SparkGlobalContext = sc

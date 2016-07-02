@@ -1,47 +1,61 @@
-/**
-  * @author jonny
-  *
-  *         UFRJ - Escola Politécnica
-  *         "Big Data" course
-  *         Professor: Villas Boas, Sergio B. [sbVB]
-  *         Student: Jonathan Augusto <jonathanaugusto@poli.ufrj.br>
-  *         Project: RioSmartStops
-  *         Date: 23/06/15
-  */
-
 package RioSmartStops
 
 import RioSmartStops.Global._
-import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.functions._
-import org.apache.spark.sql.{DataFrame, SaveMode, functions}
+import org.apache.spark.rdd._
+import org.apache.spark.sql._
+import org.apache.spark.SparkContext
 import scala.collection.mutable._
 
-
+/**
+  * UFRJ - Escola Politécnica
+  * "Big Data" course
+  * Professor: Villas Boas, Sergio B. [sbVB]
+  * Student: Jonathan Augusto <jonathanaugusto@poli.ufrj.br>
+  * Project: Default (Template) Project
+  * Date: 28/06/16
+  */
 // GPS Data Updater Program
 object GTFSDataUpdater {
 
+  val sc = SparkContext.getOrCreate(SparkConf.setAppName("RioSmartStops-GTFS"))
+  val sqlc = SQLContext.getOrCreate(sc)
+
+  sqlc.udf.register("onSegment", isOnSegmentFunction)
+  sqlc.udf.register("alongTrack", alongTrackDistanceFunction)
+
   def main(args: Array[String]) {
 
-    UpdateFaresAndRoutes()
-    UpdateShapes()
-    UpdateStops()
-    UpdateTrips()
-    UpdateTripStops()
-    UpdateDB()
-    //FindNearBuses(-22.876705,-43.335793,200) // Viaduto de Madureira
-    //FindNearBuses(-23.001494, -43.366088,200) // Alvorada
-    //FindNearBuses(-22.901285, -43.179065,200) // Candelaria
-    //FindNearBuses(-22.860928, -43.227278,200) // Bloco H
+    if (args.isEmpty) {
+      println("No arg specified. Usage: --routes, --shapes, --trips, --stops or --all")
+      return
+    }
+    var routesOption: Boolean = false
+    var shapesOption: Boolean = false
+    var tripsOption: Boolean = false
+    var stopsOption: Boolean = false
+    var allOption: Boolean = false
 
-    stop()
+    args.toList.collect {
+      case "--routes" => routesOption = true
+      case "--shapes" => shapesOption = true
+      case "--trips"  => tripsOption = true
+      case "--stops"  => stopsOption = true
+      case "--all"    => allOption = true
+    }
+    if (routesOption || allOption) UpdateFaresAndRoutes()
+    if (shapesOption || allOption) UpdateShapes()
+    if (stopsOption || allOption) UpdateStops()
+    if (tripsOption || allOption) UpdateTrips()
+    if (tripsOption || stopsOption || allOption) UpdateTripStops()
+//    UpdateDB()
+
   }
 
   def GetFaresDF(fare_id: String = null, recursive: Boolean = false): DataFrame = {
 
     if (debug && !recursive) print("Reading fares table... ")
 
-    var data = SparkSqlContext.read.parquet(Parquet_Fares_File)
+    var data: DataFrame = sqlc.read.parquet(Parquet_Fares_File)
 
     if (data.count() == 0) {
       println("No data")
@@ -51,14 +65,14 @@ object GTFSDataUpdater {
     }
 
     if (fare_id == null)
-      data = data.filter(col("id") === fare_id)
+      data = data.filter(data("id") === fare_id)
 
     //    val data_arr = data.collect().map(f =>
     //      Fare(id = f(0).toString, price = f(1).toString.toFloat,
     //        transfers = f(2).toString.toInt, transfer_duration = f(3).toString.toInt))
     //
-    //    val data_rdd = SparkGlobalContext.broadcast(data_arr)
-    //    val data_df = SparkSqlContext.createDataFrame(data_rdd.value)
+    //    val data_rdd = sc.broadcast(data_arr)
+    //    val data_df = sqlc.createDataFrame(data_rdd.value)
 
     if (debug && !recursive) println("Loaded. Count: " + data.count())
 
@@ -69,7 +83,7 @@ object GTFSDataUpdater {
 
     if (debug && !recursive) print("Reading routes table... ")
 
-    var data = SparkSqlContext.read.parquet(Parquet_Routes_File)
+    var data = sqlc.read.parquet(Parquet_Routes_File)
 
     if (data.count() == 0) {
       println("No data")
@@ -79,14 +93,14 @@ object GTFSDataUpdater {
     }
 
     if (route_id != null)
-      data = data.filter(col("id") === route_id)
+      data = data.filter(data("id") === route_id)
 
     //    val data_arr = data.collect().map(f =>
     //      Route(id = f(0).toString, code = f(1).toString, name = f(2).toString,
     //        info = f(3).toString, color = f(4).toString, fare_id = f(5).toString))
     //
-    //    val data_rdd = SparkGlobalContext.broadcast(data_arr)
-    //    val data_df = SparkSqlContext.createDataFrame(data_rdd.value)
+    //    val data_rdd = sc.broadcast(data_arr)
+    //    val data_df = sqlc.createDataFrame(data_rdd.value)
 
     if (debug && !recursive) println("Loaded. Count: " + data.count())
 
@@ -97,7 +111,7 @@ object GTFSDataUpdater {
 
     if (debug && !recursive) print("Reading shapes table... ")
 
-    var data = SparkSqlContext.read.parquet(Parquet_Shapes_File)
+    var data = sqlc.read.parquet(Parquet_Shapes_File)
 
     if (data.count() == 0) {
       println("No data")
@@ -107,20 +121,20 @@ object GTFSDataUpdater {
     }
 
     if (shape_id != null)
-      data = data.filter(col("id") === shape_id)
+      data = data.filter(data("id") === shape_id)
 
-    //val data_brd = SparkGlobalContext.parallelize(data)
+    //val data_brd = sc.parallelize(data)
     if (debug && !recursive) println("Loaded. Count: " + data.count() + "\r\n" +
       "ATTENTION: Need to call some ACTION to avoid lazy-transformation problems")
 
-    broadcast(data)
+    data
   }
 
   def GetStopsDF(stop_id: String = null, recursive: Boolean = false): DataFrame = {
 
     if (debug && !recursive) print("Reading stops table... ")
 
-    var data = SparkSqlContext.read.parquet(Parquet_Stops_File)
+    var data = sqlc.read.parquet(Parquet_Stops_File)
 
     if (data.count() == 0) {
       println("No data")
@@ -129,9 +143,9 @@ object GTFSDataUpdater {
     }
 
     if (stop_id != null)
-      data = data.filter(col("id") === stop_id)
+      data = data.filter(data("id") === stop_id)
 
-    //    val data_brd = SparkGlobalContext.broadcast(data)
+    //    val data_brd = sc.broadcast(data)
 
     if (debug && !recursive) println("Loaded. Count: " + data.count())
 
@@ -142,22 +156,21 @@ object GTFSDataUpdater {
 
     if (debug && !recursive) print("Reading trips table... ")
 
-    var data: DataFrame = SparkSqlContext.read.parquet(Parquet_Trips_File)
+    var data: DataFrame = sqlc.read.parquet(Parquet_Trips_File)
 
     if (data.count() == 0) {
       println("No data")
       UpdateTrips()
-      return GetTripsDF(trip_id, route_id, true)
-    }
+      return GetTripsDF(trip_id, route_id, true)}
 
     if (trip_id != null && route_id != null)
-      data = data.filter(col("id") === trip_id && col("route_id") === route_id)
+      data = data.filter(data("id") === trip_id && data("route_id") === route_id)
     else if (trip_id == null && route_id != null)
-      data = data.filter(col("route_id") === route_id)
+      data = data.filter(data("route_id") === route_id)
     else if (trip_id != null && route_id == null)
-      data = data.filter(col("id") === trip_id)
+      data = data.filter(data("id") === trip_id)
 
-    //    val data_brd = SparkGlobalContext.broadcast(data)
+    //    val data_brd = sc.broadcast(data)
 
     if (debug && !recursive) println("Loaded. Count: " + data.count())
 
@@ -166,11 +179,13 @@ object GTFSDataUpdater {
 
   def UpdateFaresAndRoutes() {
 
+    if (debug) println("--- UPDATE FARES/ROUTES")
+
     // --------------------------------------------- fare_attributes.txt
 
     if (debug) println("Reading fare_attributes.txt")
 
-    val fare_attribs_csv = SparkGlobalContext.textFile(GTFS_Fare_Attributes_File)
+    val fare_attribs_csv = sc.textFile(GTFS_Fare_Attributes_File)
     val fare_attribs_header = fare_attribs_csv.first
 
     val fare_attribs_columns = fare_attribs_csv
@@ -181,7 +196,7 @@ object GTFSDataUpdater {
       .map(p => Fare(p(1).drop(1).dropRight(1), p(2).drop(1).dropRight(1).toFloat,
         p(5).drop(1).dropRight(1).toInt, p(6).drop(1).dropRight(1).toInt))
 
-    val fare_attribs_df = SparkSqlContext.createDataFrame(fare_attribs_rdd)
+    val fare_attribs_df = sqlc.createDataFrame(fare_attribs_rdd)
 
     fare_attribs_csv.unpersist()
 
@@ -189,7 +204,7 @@ object GTFSDataUpdater {
 
     if (debug) println("Reading fare_rules.txt")
 
-    val fare_rules_csv = SparkGlobalContext.textFile(GTFS_Fare_Rules_File)
+    val fare_rules_csv = sc.textFile(GTFS_Fare_Rules_File)
     val fare_rules_header = fare_rules_csv.first
 
     val fare_rules_rdd = fare_rules_csv
@@ -197,10 +212,7 @@ object GTFSDataUpdater {
       .map(_.split(",")) // Split with comma
       .map(f => (f(0).drop(1).dropRight(1), f(1).drop(1).dropRight(1)))
 
-    val fare_rules_df = SparkSqlContext.createDataFrame(fare_rules_rdd).toDF("fare_id", "route_id")
-    //    FaresDF = fare_rules_df
-    //    FaresDF.persist(StorageLevel.MEMORY_AND_DISK_SER)
-    //fare_rules_df.unpersist()
+    val fare_rules_df = sqlc.createDataFrame(fare_rules_rdd).toDF("fare_id", "route_id")
     fare_rules_csv.unpersist()
 
 
@@ -208,24 +220,33 @@ object GTFSDataUpdater {
 
     if (debug) println("Reading routes.txt")
 
-    val routes_csv = SparkGlobalContext.textFile(GTFS_Routes_File)
+    val routes_csv = sc.textFile(GTFS_Routes_File)
     val routes_header = routes_csv.first
 
     val routes_columnsRDD = routes_csv
       .filter(_ != routes_header) // Strip header
       .map(_.split(",")) // Split with comma
-      .map(p => (p(0).drop(1).dropRight(1), p(2).drop(1).dropRight(1), p(3).drop(1).dropRight(1),
-      p(4).drop(1).dropRight(1), p(7).drop(1).dropRight(1)))
+      .map(p => (
+        p(0).drop(1).dropRight(1), // route_id
+        p(2).drop(1).dropRight(1), // code
+        p(3).drop(1).dropRight(1), // name
+        p(4).drop(1).dropRight(1), // description
+        p(3).drop(1).dropRight(1).split("-")(0).trim, // dest1
+        p(3).drop(1).dropRight(1).split("-")(2).trim, // dest2
+        p(7).drop(1).dropRight(1)  // color
+      ))
 
-    val routes_df = SparkSqlContext.createDataFrame(routes_columnsRDD)
-      .toDF("route_id", "route_short_name", "route_long_name", "route_desc", "route_color")
+    val routes_df = sqlc.createDataFrame(routes_columnsRDD)
+      .toDF("route_id", "route_short_name", "route_long_name", "route_desc", "route_dest1", "route_dest2", "route_color")
       .join(fare_rules_df, "route_id")
-      .toDF("id", "code", "name", "info", "color", "fare_id")
-    //    RoutesDF = routes_df
-    //    RoutesDF.persist(StorageLevel.MEMORY_AND_DISK_SER)
+      .toDF("id", "code", "name", "description", "dest1", "dest2", "color", "fare_id")
 
-    fare_attribs_df.write.format("parquet").mode(SaveMode.Overwrite).save(Parquet_Fares_File)
-    routes_df.write.format("parquet").mode(SaveMode.Overwrite).save(Parquet_Routes_File)
+    routes_df.show()
+
+    fare_attribs_df.write.mode(SaveMode.Overwrite).parquet(Parquet_Fares_File)
+//    fare_attribs_df.write.mode(SaveMode.Overwrite).jdbc(DBConnectionString,"fare",DBConnectionProperties)
+    routes_df.write.mode(SaveMode.Overwrite).parquet(Parquet_Routes_File)
+//    routes_df.write.mode(SaveMode.Overwrite).jdbc(DBConnectionString,"route",DBConnectionProperties)
 
     fare_attribs_df.unpersist()
     fare_rules_df.unpersist()
@@ -235,17 +256,21 @@ object GTFSDataUpdater {
 
   def UpdateShapes() {
 
+    if (debug) println("--- UPDATE SHAPES")
+
     // Erasing existent file
 
     val ss = new ArrayBuffer[Shape]() += new Shape("", 0, .0, .0, .0, .0, .0, .0)
-    val r = SparkGlobalContext.parallelize(ss)
-    SparkSqlContext.createDataFrame(r).write.format("parquet").mode(SaveMode.Overwrite).save(Parquet_Shapes_File)
+    val r = sc.parallelize(ss)
+    val d = sqlc.createDataFrame(r)
+    d.write.mode(SaveMode.Overwrite).parquet(Parquet_Shapes_File)
+//    d.write.mode(SaveMode.Overwrite).jdbc(DBConnectionString,"shape",DBConnectionProperties)
 
     if (debug) println("Reading shapes.txt -- sequentially, in order to calculate travelled distances")
 
     // --------------------------------------------- shapes.txt
 
-    val shapes_csv = SparkGlobalContext.textFile(GTFS_Shapes_File)
+    val shapes_csv = sc.textFile(GTFS_Shapes_File)
     val shapes_header = shapes_csv.first
 
     // RDD of Shapes partitioned by groups with same shape_id
@@ -266,7 +291,7 @@ object GTFSDataUpdater {
     val shapes_ids = shapes_grouped_rdd.keys.distinct().collect()
     var shapes_count = 0
 
-    print("ids: ")
+//    print("ids: ")
     for (id <- shapes_ids) {
       shapes_count += 1
       var total_dist: Double = .0
@@ -295,24 +320,23 @@ object GTFSDataUpdater {
           }
       }
 
-      val shapes_rdd = SparkGlobalContext.parallelize(shapes_calculated)
-      val shapes_df = SparkSqlContext.createDataFrame(shapes_rdd)
-      shapes_df.write.format("parquet").mode(SaveMode.Append).save(Parquet_Shapes_File)
+      val shapes_rdd = sc.parallelize(shapes_calculated)
+      val shapes_df = sqlc.createDataFrame(shapes_rdd)
+      shapes_df.write.mode(SaveMode.Append).parquet(Parquet_Shapes_File)
+//      shapes_df.write.mode(SaveMode.Append).jdbc(DBConnectionString,"shape",DBConnectionProperties)
       shapes_calculated = new ArrayBuffer[Shape]()
-      //        ShapesDF = shapes_df
-      //        ShapesDF.persist(StorageLevel.MEMORY_AND_DISK_SER)
-      //      shapes_df.unpersist()
-      //      shapes_rdd.unpersist()
 
-      if (debug) print(id + " | ")
+//      if (debug) print(id + " | ")
     }
   }
 
   def UpdateStops() = {
 
+    if (debug) println("--- UPDATE STOPS")
+
     if (debug) println("Reading stops.txt")
 
-    val stops_csv = SparkGlobalContext.textFile(GTFS_Stops_File)
+    val stops_csv = sc.textFile(GTFS_Stops_File)
     val stops_header = stops_csv.first
 
     val stops_columns: RDD[Array[String]] = stops_csv
@@ -331,27 +355,22 @@ object GTFSDataUpdater {
           p(5).drop(1).dropRight(1).toDouble)
       }
       )
-
-    val stops_df = SparkSqlContext.createDataFrame(stops_rdd).orderBy("id")
-
+    val stops_df = sqlc.createDataFrame(stops_rdd)//.orderBy("id")
     println("Loaded. Count: " + stops_df.count())
-    //      StopsDF = stops_df
-    //      StopsDF.persist(StorageLevel.MEMORY_AND_DISK_SER)
+
+    stops_df.write.mode(SaveMode.Overwrite).parquet(Parquet_Stops_File)
+//    stops_df.write.mode(SaveMode.Overwrite).jdbc(DBConnectionString,"stop",DBConnectionProperties)
+
     stops_rdd.unpersist()
-
-    //    println("count = " + stops_df.count())
-    stops_df.printSchema()
-    //    stops_df.show(stops_df.count().toInt)
-
-    stops_df.write.format("parquet").mode(SaveMode.Overwrite).save(Parquet_Stops_File)
-
   }
 
   def UpdateTrips() = {
 
+    if (debug) println("--- UPDATE TRIPS")
+
     if (debug) println("Reading trips.txt")
 
-    val trips_csv = SparkGlobalContext.textFile(GTFS_Trips_File)
+    val trips_csv = sc.textFile(GTFS_Trips_File)
     val trips_header = trips_csv.first
 
     val trips_columns_rdd = trips_csv
@@ -365,7 +384,7 @@ object GTFSDataUpdater {
         p(3).drop(1).dropRight(1): String, // Headsign
         p(6).drop(1).dropRight(1): String)) // Shape ID
 
-    val trips_columns_df = SparkSqlContext.createDataFrame(trips_columns_rdd)
+    val trips_columns_df = sqlc.createDataFrame(trips_columns_rdd)
       .toDF("id", /*"service_id",*/ "route_id", "direction", "headsign", "shape_id")
 
     // Order by Route ID, Select the minimum Trip ID (saving just one of them: the minimum ID)
@@ -373,47 +392,45 @@ object GTFSDataUpdater {
       .agg("id" -> "min").orderBy("min(id)").toDF("route", "min")
 
     val trips_rdd = trips_routes_simplified
-      .join(trips_columns_df, col("min") === col("id"), "left_outer")
+      .join(trips_columns_df, trips_routes_simplified("min") === trips_columns_df("id"), "left_outer")
       .drop("route").drop("min")
       .map(f => Trip(f(0).toString.toLong, f(1).toString, f(2).toString.toInt, f(3).toString, f(4).toString))
 
     trips_routes_simplified.unpersist()
     trips_columns_df.unpersist()
 
-    val trips_df = SparkSqlContext.createDataFrame(trips_rdd)
+    val trips_df = sqlc.createDataFrame(trips_rdd)
 
     println("Loaded. Count: " + trips_df.count())
-    //      TripsDF = trips_df
-    //      TripsDF.persist(StorageLevel.MEMORY_AND_DISK_SER)
-    //    trips_df.printSchema()
-    //    trips_df.show()
 
-    trips_df.write.format("parquet").mode(SaveMode.Overwrite).save(Parquet_Trips_File)
+    trips_df.write.mode(SaveMode.Overwrite).parquet(Parquet_Trips_File)
+//    trips_df.write.mode(SaveMode.Overwrite).jdbc(DBConnectionString,"trip",DBConnectionProperties)
 
   }
 
   def UpdateTripStops() {
 
-    // Erasing existent file
+    if (debug) println("--- UPDATE TRIPSTOPS")
 
-    val ss = new ArrayBuffer[TripStop]() += new TripStop(0, null, 0, .0)
-    val r = SparkGlobalContext.parallelize(ss)
-    SparkSqlContext.createDataFrame(r).write.format("parquet").mode(SaveMode.Overwrite).save(Parquet_TripStops_File)
+//    // Erasing existent file
+//
+//    val ss = new ArrayBuffer[TripStop]() += new TripStop(0, null, 0, .0)
+//    val r = sc.parallelize(ss)
+//    val d = sqlc.createDataFrame(r)
+//    d.write.mode(SaveMode.Overwrite).parquet(Parquet_TripStops_File)
+//    d.write.mode(SaveMode.Overwrite).jdbc(DBConnectionString,"tripstop",DBConnectionProperties)
 
     // --------------------------------------------- stop_times.txt
 
     val trips_df = GetTripsDF().select("id", "shape_id").withColumnRenamed("id", "trip_id")
-    broadcast(trips_df)
 
     val stops_df = GetStopsDF()
-    broadcast(stops_df)
 
     val shapes_df = GetShapesDF().drop("sequence")
-    broadcast(shapes_df)
 
     if (debug) println("Reading stop_times.txt")
 
-    val stop_times_csv = SparkGlobalContext.textFile(GTFS_Stop_Times_File)
+    val stop_times_csv = sc.textFile(GTFS_Stop_Times_File)
     val stop_times_header = stop_times_csv.first
 
     val stop_times_txt_rdd: RDD[(Long, String, Int)] = stop_times_csv
@@ -427,7 +444,7 @@ object GTFSDataUpdater {
       )
     println("Read. Count: " + stop_times_txt_rdd.count())
 
-    val stop_times_df = SparkSqlContext.createDataFrame(stop_times_txt_rdd)
+    val stop_times_df = sqlc.createDataFrame(stop_times_txt_rdd)
       .toDF("trip_id", "stop_id", "sequence").join(trips_df, "trip_id")
     println("Filtered. Count: " + stop_times_df.count())
     //      stop_times_df.printSchema() // trip_id, stop_id, sequence(stop), shape_id
@@ -469,15 +486,15 @@ object GTFSDataUpdater {
     if (debug) print("2 ")
 
     // Calculate cross-track distance
-    val df3a = df2 //SparkSqlContext.read.parquet(HDFS_Dir + Parquet_Data + "temp.parquet")
+    val df3a = df2 //sqlc.read.parquet(HDFS_Dir + Parquet_Data + "temp.parquet")
     //          .withColumn("onSegment", functions.callUDF("onSegment", col("lat"), col("lon"), col("lat1"), col("lon1"), col("lat2"), col("lon2")))
     df3a.registerTempTable("df3a")
-    val df3 = SparkSqlContext.sql("select * from df3a where onSegment(lat,lon,lat1,lon1,lat2,lon2) = true")
+    val df3 = sqlc.sql("select * from df3a where onSegment(lat,lon,lat1,lon1,lat2,lon2) = true")
     //        df3.write.format("parquet").mode(SaveMode.Overwrite).save(Local_Dir + GTFS_Data + "df3.parquet")
     //        df3.unpersist()
     if (debug) print("3 ")
 
-    val df4 = df3 //SparkSqlContext.read.parquet(Local_Dir + GTFS_Data + "df3.parquet")
+    val df4 = df3 //sqlc.read.parquet(Local_Dir + GTFS_Data + "df3.parquet")
       //          .filter(col("onSegment") === lit(true))
       .withColumn("alongTrackDistance",
       functions.callUDF("alongTrack", df3("lat"), df3("lon"), df3("lat1"), df3("lon1"), df3("lat2"), df3("lon2")))
@@ -485,13 +502,13 @@ object GTFSDataUpdater {
     //        df4.unpersist()
     if (debug) print("4 ")
 
-    val df5 = df4 //SparkSqlContext.read.parquet(Local_Dir + GTFS_Data + "df4.parquet")
+    val df5 = df4 //sqlc.read.parquet(Local_Dir + GTFS_Data + "df4.parquet")
       .withColumn("stop_dist", df4("total_dist") - df4("dist") + df4("alongTrackDistance"))
     //        df5.write.format("parquet").mode(SaveMode.Overwrite).save(Local_Dir + GTFS_Data + "df5.parquet")
     //        df5.unpersist()
     if (debug) print("5 ")
 
-    val df6 = df5 //SparkSqlContext.read.parquet(Local_Dir + GTFS_Data + "df5.parquet")
+    val df6 = df5 //sqlc.read.parquet(Local_Dir + GTFS_Data + "df5.parquet")
       .drop("dist")
       .withColumnRenamed("stop_dist", "dist")
       //.withColumn("trip_id", lit(trip_id))
@@ -499,25 +516,24 @@ object GTFSDataUpdater {
     if (debug) print("6 ")
 
     df6.write.mode(SaveMode.Overwrite).parquet(Parquet_TripStops_File)
-    //      df6.write.mode(SaveMode.Overwrite).jdbc(DBConnectionString,"tripstop",DBConnectionProperties)
+//    df6.write.mode(SaveMode.Overwrite).jdbc(DBConnectionString,"tripstop",DBConnectionProperties)
     if (debug) println("DB.")
 
     df3a.unpersist()
     df3.unpersist()
     df4.unpersist()
     df5.unpersist()
-    df6.unpersist()
+
   }
 
-  def UpdateDB() {
-    SparkSqlContext.read.parquet(Parquet_Fares_File).write.mode(SaveMode.Overwrite).jdbc(DBConnectionString,"fare",DBConnectionProperties)
-    SparkSqlContext.read.parquet(Parquet_Routes_File).write.mode(SaveMode.Overwrite).jdbc(DBConnectionString,"route",DBConnectionProperties)
-    SparkSqlContext.read.parquet(Parquet_Trips_File).write.mode(SaveMode.Overwrite).jdbc(DBConnectionString,"trip",DBConnectionProperties)
-    SparkSqlContext.read.parquet(Parquet_Stops_File).write.mode(SaveMode.Overwrite).jdbc(DBConnectionString,"stop",DBConnectionProperties)
-    SparkSqlContext.read.parquet(Parquet_TripStops_File).write.mode(SaveMode.Overwrite).jdbc(DBConnectionString,"tripstop",DBConnectionProperties)
-    SparkSqlContext.read.parquet(Parquet_Shapes_File).write.mode(SaveMode.Overwrite).jdbc(DBConnectionString,"shape",DBConnectionProperties)
-  }
+//  def UpdateDB() {
+//    sqlc.read.parquet(Parquet_Fares_File).write.mode(SaveMode.Overwrite).jdbc(DBConnectionString,"fare",DBConnectionProperties)
+//    sqlc.read.parquet(Parquet_Routes_File).write.mode(SaveMode.Overwrite).jdbc(DBConnectionString,"route",DBConnectionProperties)
+//    sqlc.read.parquet(Parquet_Trips_File).write.mode(SaveMode.Overwrite).jdbc(DBConnectionString,"trip",DBConnectionProperties)
+//    sqlc.read.parquet(Parquet_Stops_File).write.mode(SaveMode.Overwrite).jdbc(DBConnectionString,"stop",DBConnectionProperties)
+//    sqlc.read.parquet(Parquet_Shapes_File).write.mode(SaveMode.Overwrite).jdbc(DBConnectionString,"shape",DBConnectionProperties)
+//    sqlc.read.parquet(Parquet_TripStops_File).write.mode(SaveMode.Overwrite).jdbc(DBConnectionString,"tripstop",DBConnectionProperties)
+//  }
 
 
 }
-

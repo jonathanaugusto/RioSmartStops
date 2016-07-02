@@ -11,84 +11,127 @@
 
 package RioSmartStops
 
-import java.sql.Timestamp
-
 import RioSmartStops.Global._
-import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.DataFrame
-import scala.collection.mutable._
+import org.apache.spark.sql.{DataFrame, SQLContext}
+import org.apache.spark.storage.StorageLevel
+import org.apache.spark.streaming.receiver.Receiver
+import org.apache.spark.streaming.{Seconds, StreamingContext}
+import org.apache.spark.{Logging, SparkContext}
 
+import scala.collection.mutable._
 
 // GPS Data Updater Program
 object GPSDataUpdater {
 
+  val sc = SparkContext.getOrCreate(SparkConf.setAppName("RioSmartStops-GPS"))
+  val sqlc = SQLContext.getOrCreate(sc)
+  val ssc = new StreamingContext(sc, Seconds(30))
+
+//  var GPSDataQueue = new Queue[RDD[GPSData]]()
+
+//  def createSSC(): StreamingContext = {
+//    val ssc = new StreamingContext(sc, Seconds(30))
+//    ssc.checkpoint(Local_Dir + Checkpoint_Dir)
+//    ssc
+//  }
+//  val ssc = StreamingContext.getOrCreate(Local_Dir + Checkpoint_Dir, createSSC _)
+
   def main(args: Array[String]) {
 
-    PushGPSData()
+    if (debug) print("Updating GPS data... ")
+    val inputStream = ssc.receiverStream(new GPSDataPusher())
+    inputStream.foreachRDD(f => f.foreach(a => a.show(10)))
+//    inputStream.print()
+//    sc.parallelize[GPSData](inputStream)
+    ssc.start()
+    ssc.awaitTermination()
+    //    val df = sqlc.createDataFrame(inputStream.asInstanceOf[RDD[GPSData]])
+    //    df.show()
+    //    ssc.awaitTerminationOrTimeout(2000)
 
+//    PullGPSData()
+
+//    ssc.stop(stopSparkContext = true, stopGracefully = true)
 
     //FindNearBuses(-22.876705,-43.335793,200) // Viaduto de Madureira
     //FindNearBuses(-23.001494, -43.366088,200) // Alvorada
     //FindNearBuses(-22.901285, -43.179065,200) // Candelaria
     //FindNearBuses(-22.860928, -43.227278,200) // Bloco H
 
-    stop()
   }
 
+  class GPSDataPusher() extends Receiver[DataFrame](StorageLevel.MEMORY_AND_DISK) with Logging {
 
-  def PushGPSData() {
-
-    if (debug) println("Refreshing GPS data...")
-
-    //TODO: Pensar em como coletar os dados de GPS rapidamente: um cluster, data warehouse, Hive, Kafka, Plume, algum desses citados pelo Spark. 50 SEGUNDOS pra baixar cada arquivo!
-
-    val gpsdata_json: DataFrame = SparkSqlContext.read.json(Test_GPS_Data_File)
-
-    // Select "DATA" row and map data
-    //"06-27-2015 00:01:10","A63535","",-22.867781,-43.258301,0.0
-    val gpsdata_all_arr = gpsdata_json.select("DATA").first()
-      .getAs[WrappedArray[(String, String, String, Double, Double, Double, String)]](0)
-
-    val last_execution_str = SparkSqlContext.read.
-      jdbc(DBConnectionString, "gpsdata", DBConnectionProperties)
-      .selectExpr("max(datetime)").collect()(0).getAs[String](0)
-
-    var last_execution_timestamp: Timestamp = null
-
-    var gpsdata_rdd: RDD[GPSData] = null
-
-    if (last_execution_str != null) {
-      last_execution_timestamp = formatTimestamp(last_execution_str)
-      println(last_execution_str)
-      gpsdata_rdd = SparkGlobalContext.parallelize(gpsdata_all_arr)
-        .map(f => GPSData(formatTimestamp(f._1), f._2, f._3, f._4, f._5, f._6))
-        .filter(f => f.datetime.compareTo(last_execution_timestamp) > 0)
+    def onStart() {
+      new Thread("GPS Data Pusher Thread") {
+        override def run() {
+          receive()
+        }
+      }.start()
     }
-    else
-      gpsdata_rdd = SparkGlobalContext.parallelize(gpsdata_all_arr)
-        .map(f => GPSData(formatTimestamp(f._1), f._2, f._3, f._4, f._5, f._6))
 
-    //            GPSDataQueue.synchronized(GPSDataQueue += gpsdata_rdd)
+    def onStop() {
+      // There is nothing much to do as the thread calling receive()
+      // is designed to stop by itself if isStopped() returns false
+    }
 
-    //            var gpsdata_df: DataFrame = SparkSqlContext.createDataFrame(gpsdata_rdd)
-    //            gpsdata_df.printSchema()
+    private def receive() {
 
-    //            gpsdata_df.write.mode("overwrite").jdbc(DBConnectionString, "gpsdata", DBConnectionProperties)
+      try {
+        while(!isStopped) {
+          //TODO: Pensar em como coletar os dados de GPS rapidamente: um cluster, data warehouse, Hive, Kafka, Plume, algum desses citados pelo Spark. 50 SEGUNDOS pra baixar cada arquivo!
 
-    //            gpsdata_json.unpersist()
-    //            gpsdata_rdd.unpersist()
-    //            gpsdata_df.unpersist()
+          // Select "DATA" row and map data
+          //    //"06-27-2015 00:01:10","A63535","",-22.867781,-43.258301,0.0,""
+          var gpsdata_json = sqlc.read.json(GPS_Bus_Data_File)
 
+          val gpsdata_rdd = gpsdata_json
+            .explode("DATA", "NEWDATA") { l: WrappedArray[WrappedArray[String]] => l }
+            .select("NEWDATA")
+            .map(f => f(0).asInstanceOf[WrappedArray[String]])
+            .map(f => GPSData(formatTimestamp(f(0)), f(1), f(2), f(3).toDouble, f(4).toDouble, f(5).toDouble, f(6)))
+//          gpsdata_rdd.foreach(store)
 
+                //    gpsdata_df.show()
+          //      gpsdata_df.write.mode("overwrite").parquet(Parquet_GPSData_File)
+          //      gpsdata_df.write.mode("overwrite").jdbc(DBConnectionString, "gpsdata", DBConnectionProperties)
+
+          val gpsdata_df = sqlc.createDataFrame(gpsdata_rdd)
+          store(gpsdata_df)
+
+          //      GPSDataQueue.synchronized(GPSDataQueue += gpsdata_rdd)
+          gpsdata_json.unpersist()
+          gpsdata_json = null
+
+          logInfo("Stopped receiving")
+          restart("Trying to connect again")
+
+          //            gpsdata_json.unpersist()
+          //            gpsdata_rdd.unpersist()
+          //            gpsdata_df.unpersist()
+        }
+      } catch {
+        case t: Throwable =>
+          // restart if there is any other error
+          restart("Error pushing data", t)
+      }
+
+    }
   }
 
   def PullGPSData() {
-    //    val GPSDataStream: InputDStream[GPSData] = SparkStreamingContext.queueStream(GPSDataQueue, oneAtATime = true)
 
     // TODO: 1) Calcular distâncias de Stop em relação a Shape (guardar no banco) => outra função
     // TODO: 2) Como manter tabela Shape em memória?
     // TODO: 3) Comparar distâncias GPSData e Shape(dist de ponto a reta e depois projeção)
 
+    if (debug) print("Updating GPS data... ")
+    val inputStream = ssc.receiverStream(new GPSDataPusher())
+    inputStream.print()
+//    val df = sqlc.createDataFrame(inputStream.asInstanceOf[RDD[GPSData]])
+//    df.show()
+    ssc.start()
+//    ssc.awaitTerminationOrTimeout(2000)
   }
 
 
