@@ -6,6 +6,7 @@
     <JAVADOC />
     <SOURCES>
       <root url="jar:///usr/local/spark/assembly/target/scala-2.10/spark-assembly-1.6.1-hadoop2.7.2.jar!/" />
+      <root url="jar:///usr/local/spark/assembly/target/scala-2.10/spark-assembly-1.6.1-hadoop2.7.2.jar!/" />
     </SOURCES>
   </library>
 </component>

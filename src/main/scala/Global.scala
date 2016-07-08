@@ -23,12 +23,12 @@ import scala.util.Random
 object Global {
 
   // URIs to GPS and bus line files
-  val Bus_GPS_Data_URL = "http://dadosabertos.rio.rj.gov.br/apiTransporte/apresentacao/rest/index.cfm/onibus"
-  val BRT_GPS_Data_URL = "http://dadosabertos.rio.rj.gov.br/apiTransporte/apresentacao/rest/index.cfm/brt"
+  val GPS_Bus_Data_URL = "http://dadosabertos.rio.rj.gov.br/apiTransporte/apresentacao/rest/index.cfm/onibus"
+  val GPS_BRT_Data_URL = "http://dadosabertos.rio.rj.gov.br/apiTransporte/apresentacao/rest/index.cfm/brt"
   val GTFS_Package_URL = "http://dadosabertos2.rio.rj.gov.br/dadoaberto/google-transit/google_transit.zip"
 
   // Local directory to save files
-  val Local_Dir = "file:////usr/local/RioSmartStops/"
+  val Local_Dir = "file:///usr/local/RioSmartStops/"
 //  val HDFS_Dir = "hdfs:///usr/local/RioSmartStops/"
   val GTFS_Data = "data/gtfs/"
   val GPS_Data = "data/gps/"
@@ -59,12 +59,12 @@ object Global {
   // Spark configuration
   val SparkConf = new SparkConf()
 //    .setMaster("yarn-client")
-    .setMaster("spark://localhost:7077")
-    .set("spark.io.compression.codec", "lz4")
-    .set("spark.speculation", "false")
-    .set("parquet.read.support.class", "parquet.avro.AvroReadSupport")
-//    .set("spark.eventLog.enabled", "true")
-//    .set("spark.eventLog.dir", Local_Dir + Log_Dir)
+    .setMaster("local[*]")
+//    .set("spark.io.compression.codec", "lz4")
+//    .set("spark.speculation", "false")
+//    .set("parquet.read.support.class", "parquet.avro.AvroReadSupport")
+    .set("spark.eventLog.enabled", "true")
+    .set("spark.eventLog.dir", Local_Dir + Log_Dir)
     //.set("spark.driver.memory", "4g")
     //.set("spark.executor.memory", "4g")
     //.set("spark.cleaner.ttl", "6000")
@@ -178,7 +178,11 @@ object Global {
     * @param vel           Captured velocity
     */
   case class GPSData(datetime: Timestamp, serial_number: String,
-                     route_code: String, lat: Double, lon: Double, vel: Double, direction: String)
+                     route_code: String, lat: Double, lon: Double, vel: Double, direction: String){
+    override def toString(): String = {
+      return "H: " + datetime + "|S:" + serial_number + "|L:" + route_code + "|P:(" + lat + "," + lon + ")|V:" + vel + "|D:" + direction
+    }
+  }
 
   /**
     * Class to represent bus lines, aligned with GTFS definition.
